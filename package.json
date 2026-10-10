@@ -1,0 +1,21 @@
+{
+  "name": "review-report",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Claude Code skill that turns a diff, branch or PR into an HTML walkthrough with plain-English line notes",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node scripts/test.mjs",
+    "example": "node skills/review-report/render.mjs --story skills/review-report/test/fixture.story.json --diff-file skills/review-report/test/fixture.diff --out skills/review-report/reference/example-report.html",
+    "e2e": "playwright test",
+    "screenshots": "node scripts/screenshots.mjs",
+    "update-cdn": "node scripts/update-cdn.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "1.64.0"
+  }
+}

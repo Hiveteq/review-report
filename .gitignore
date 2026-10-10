@@ -1,0 +1,25 @@
+# Dependencies and local tool output
+node_modules/
+test-results/
+playwright-report/
+.playwright-mcp/
+coverage/
+*.log
+
+# Reports rendered while developing or testing the skill
+reports/
+
+# Editors and operating systems, for contributors without a global ignore file
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Personal Claude Code instructions and settings (AGENTS.md is the shared guide)
+CLAUDE.local.md
+.claude/
+
+# Local environment files
+.env
+.env.*

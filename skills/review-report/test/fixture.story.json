@@ -1,0 +1,110 @@
+{
+  "meta": {
+    "title": "Greeter takes a Name value object",
+    "target": "fixture",
+    "base": "master",
+    "head": "feature/name",
+    "readerPass": {
+      "rounds": 1,
+      "questionsAnswered": 2,
+      "openQuestions": 0
+    }
+  },
+  "overview": {
+    "bigPicture": "`Greeter` builds the greeting text from whatever string the caller passes. This change puts a `Name` type between the caller and `Greeter`.\n\n```mermaid\nflowchart LR\n  Caller --> Name --> Greeter.greet\n  classDef new fill:#dafbe1,stroke:#1a7f37\n  classDef changed fill:#fff8c5,stroke:#9a6700\n  class Name new\n  class Greeter.greet changed\n```\n\nGreen is new, yellow is changed; the caller is untouched.",
+    "why": "Passing a raw `String` let callers send empty or malformed names. Bugs showed up far from the call site.",
+    "approach": "Introduce a `Name` record and make `Greeter.greet` accept only that type. Callers must construct a `Name`, so validation happens once, at the boundary.",
+    "howToRead": "Top to bottom: the new type first, then the call site that adopts it, then the class it replaces. Docs and the migration table close the report."
+  },
+  "glossary": [
+    {
+      "term": "Name",
+      "meaning": "New value object wrapping a person's name, so callers cannot pass an arbitrary string."
+    }
+  ],
+  "howToTest": "```bash\nmvn -q test\n```",
+  "exclude": [
+    {
+      "glob": "docs/**",
+      "reason": "docs: prose, not code"
+    }
+  ],
+  "tests": [],
+  "chapters": [
+    {
+      "title": "1. The new Name type",
+      "intro": "Everything else depends on this record, so it comes first. It is the type the rest of the change passes around.",
+      "hunks": [
+        {
+          "file": "src/Name.java",
+          "lines": "all",
+          "comments": [
+            {
+              "line": 3,
+              "text": "A Java `record` gives `equals`, `hashCode` and the `value()` accessor for free."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "2. Greeter adopts Name",
+      "intro": "The only call site. Note the accessor call replacing direct string use; it follows the record because it consumes it.",
+      "hunks": [
+        {
+          "file": "src/Greeter.java",
+          "lines": [
+            4,
+            5
+          ],
+          "comments": [
+            {
+              "line": 4,
+              "text": "Signature changes from `String` to `Name`; callers must construct a `Name`."
+            },
+            {
+              "line": 5,
+              "side": "old",
+              "text": "The deleted line concatenated the raw string. The replacement calls `name.value()`."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "3. Legacy removed",
+      "intro": "Dead class with no references, so removing it is safe. It comes after the call site to show nothing else used it.",
+      "hunks": [
+        {
+          "file": "src/Legacy.java",
+          "lines": "all",
+          "comments": [
+            {
+              "line": 2,
+              "side": "old",
+              "text": "Nothing imported this class."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "4. Usage docs",
+      "intro": "README gains the build command. Only the usage hunk matters here; the title tweak is in the appendix.",
+      "hunks": [
+        {
+          "file": "README.md",
+          "lines": [
+            10,
+            12
+          ]
+        }
+      ]
+    },
+    {
+      "title": "5. Migration checklist",
+      "intro": "Steps for downstream callers, as a table. Read after the code so the actions make sense.",
+      "html": "<table><tr><th>Caller</th><th>Action</th></tr><tr><td>CLI</td><td>wrap arg in <code>new Name(...)</code></td></tr></table>"
+    }
+  ]
+}

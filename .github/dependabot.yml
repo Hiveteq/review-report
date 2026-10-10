@@ -1,0 +1,12 @@
+# Weekly version updates for the development dependency (Playwright) and the workflow actions.
+# The CDN files the report page loads are not npm packages; .github/workflows/cdn.yml updates those.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

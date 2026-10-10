@@ -1,0 +1,58 @@
+name: cdn
+# Weekly check for newer highlight.js and Mermaid releases. When one exists, this job moves the pins in
+# lib/cdn.mjs, re-renders the example report, runs the unit and browser tests, and opens or refreshes a
+# pull request from the cdn-update branch. A pull request opened with GITHUB_TOKEN does not start the
+# test workflow, so the test results are written into its description instead. Failing tests open it as
+# a draft: a major release may need code changes before it can merge.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash # adds pipefail, so a failed update-cdn is not hidden by tee
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - id: bump
+        run: |
+          echo 'summary<<EOF' >> "$GITHUB_OUTPUT"
+          npm run --silent update-cdn | tee -a "$GITHUB_OUTPUT"
+          echo 'EOF' >> "$GITHUB_OUTPUT"
+          git diff --quiet || echo 'changed=true' >> "$GITHUB_OUTPUT"
+      - if: steps.bump.outputs.changed
+        run: npm run example
+      - if: steps.bump.outputs.changed
+        id: tests
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium firefox webkit
+          if npm test && npm run e2e; then echo 'result=passed' >> "$GITHUB_OUTPUT"; else echo 'result=failed' >> "$GITHUB_OUTPUT"; fi
+      - if: steps.bump.outputs.changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUMMARY: ${{ steps.bump.outputs.summary }}
+          RESULT: ${{ steps.tests.outputs.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -C cdn-update
+          git commit -am "Update pinned CDN files" -m "$SUMMARY"
+          git push --force origin cdn-update
+          body=$(printf '%s\n\n`npm test` and `npm run e2e`: **%s** in [this run](%s).\n' "$SUMMARY" "$RESULT" "$RUN_URL")
+          if [ "$(gh pr list --head cdn-update --state open --json number --jq length)" = 0 ]; then
+            draft=$([ "$RESULT" = passed ] || echo --draft)
+            gh pr create --head cdn-update --title 'Update pinned CDN files' --body "$body" $draft
+          else
+            gh pr edit cdn-update --body "$body"
+          fi
+          [ "$RESULT" = passed ]

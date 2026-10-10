@@ -1,0 +1,50 @@
+name: test
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  # Unit and CLI tests on every OS a reviewer might run the skill on. Node 22 everywhere,
+  # plus the newest Node on Linux only: macOS and Windows minutes are billed at a higher rate.
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [22]
+        include:
+          - os: ubuntu-latest
+            node: 24
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test
+      - name: Example report renders
+        run: npm run example
+      - name: Committed example report matches the renderer
+        shell: bash
+        run: git diff --exit-code -- skills/review-report/reference/example-report.html
+  # The page script in the three browser engines, opened from file:// URLs. @playwright/test is a
+  # devDependency pinned in package-lock.json; the skill itself has no runtime dependencies.
+  browsers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm run e2e
+      # Traces of failed tests open with `npx playwright show-trace` or at trace.playwright.dev.
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14

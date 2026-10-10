@@ -1,0 +1,191 @@
+/* review-report page styles. Light is the default token set; dark overrides under [data-theme="dark"].
+   Diff colors follow GitHub's palette; every text/background pair meets WCAG AA. */
+:root {
+  --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --border: #d0d7de; --surface: #f6f8fa; --link: #0969da;
+  --add-bg: #dafbe1; --add-num-bg: #aceebb; --del-bg: #ffebe9; --del-num-bg: #ffcecb; --hunk-bg: #ddf4ff; --hunk-fg: #0550ae;
+  --callout-bg: #fff8c5; --callout-border: #d4a72c; --code-bg: #f6f8fa; --add-fg: #1a7f37; --del-fg: #cf222e;
+  --marker-bg: #d4a72c; --marker-fg: #1f2328;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+[data-theme="dark"] {
+  --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --border: #30363d; --surface: #161b22; --link: #4493f8;
+  --add-bg: #12261e; --add-num-bg: #1f4a2c; --del-bg: #2d1418; --del-num-bg: #5a2226; --hunk-bg: #121d2f; --hunk-fg: #79c0ff;
+  --callout-bg: #272115; --callout-border: #9e6a03; --code-bg: #161b22; --add-fg: #3fb950; --del-fg: #f85149;
+  --marker-bg: #d29922; --marker-fg: #0d1117;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 var(--font); }
+a { color: var(--link); }
+code, pre { font-family: var(--mono); font-size: 13px; }
+p code, li code, .callout code, .intro code { background: var(--code-bg); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; overflow: auto; }
+.muted { color: var(--muted); }
+dl.glossary { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+dl.glossary dt { font-family: var(--mono); font-size: 13px; font-weight: 600; }
+dl.glossary dd { margin: 0; }
+
+.layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-height: 100vh; }
+.sidebar { position: sticky; top: 0; height: 100vh; overflow: auto; padding: 16px; border-right: 1px solid var(--border); background: var(--surface); }
+.sidebar h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 20px 0 8px; }
+.toc, .file-index ul { list-style: none; margin: 0; padding: 0; }
+.toc li, .file-index li { margin: 4px 0; font-size: 14px; }
+.toc a, .file-index a { text-decoration: none; }
+.toc a:hover, .file-index a:hover { text-decoration: underline; }
+.file-index li { display: flex; gap: 6px; align-items: baseline; }
+/* Long paths share a prefix and differ at the end, so the ellipsis goes at the start: the box is
+   right-to-left, which moves the clipped side; the <bdi> around the path keeps it reading left to right. */
+.file-index a { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 12px; direction: rtl; text-align: left; }
+.file-index .add { color: var(--add-fg); font-size: 12px; }
+.file-index .del { color: var(--del-fg); font-size: 12px; }
+#theme-toggle, #notes-toggle, #diff-toggle { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); cursor: pointer; }
+
+main { padding: 24px 40px 80px; max-width: 1400px; }
+.report-header h1 { margin: 0 0 4px; font-size: 26px; }
+.report-header .coverage { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+.report-header .target { margin: 0; color: var(--muted); font-family: var(--mono); font-size: 13px; }
+section { margin-top: 40px; }
+h2 { font-size: 20px; border-bottom: 1px solid var(--border); padding-bottom: 6px; margin: 0 0 12px; }
+.intro { margin-bottom: 16px; }
+.diagram { margin: 16px 0; }
+.diagram pre.mermaid { background: var(--surface); text-align: center; }
+figcaption { color: var(--muted); font-size: 14px; margin-top: 6px; }
+
+.file { border: 1px solid var(--border); border-radius: 6px; margin: 16px 0; overflow: clip; }
+.file-header { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 6; } /* stays on screen while its file scrolls past, so Viewed is always one click away */
+.file-header .path { font-family: var(--mono); font-size: 13px; flex: 1; }
+.status { font-size: 11px; text-transform: uppercase; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--border); color: var(--muted); }
+.status.added { color: var(--add-fg); border-color: var(--add-fg); }
+.status.deleted { color: var(--del-fg); border-color: var(--del-fg); }
+/* Only the code column scrolls, and only sideways. A box with overflow-x: auto would also scroll vertically
+   on the slightest overflow and capture the mouse wheel, so the vertical axis is pinned to hidden. */
+.file-body { overflow: visible; }
+
+table.diff { width: 100%; border-collapse: collapse; table-layout: fixed; }
+table.diff td { padding: 0 8px; vertical-align: top; white-space: pre; line-height: 20px; }
+table.diff col.num { width: 52px; }
+table.diff.split col.num { width: 44px; }
+table.diff td.num { text-align: right; color: var(--muted); user-select: none; font-family: var(--mono); font-size: 12px; }
+table.diff td.code { white-space: pre-wrap; word-break: break-word; }
+table.diff td.code code { background: none; border: 0; padding: 0; font-size: 13px; }
+tr.hunk-header td { background: var(--hunk-bg); color: var(--hunk-fg); font-family: var(--mono); font-size: 12px; padding: 4px 8px; }
+tr.add td.code { background: var(--add-bg); }
+tr.add td.num, tr.del td.num, table.diff.split td.num.add, table.diff.split td.num.del { color: var(--fg); } /* --muted fails AA on the tinted cells */
+tr.add td.num { background: var(--add-num-bg); }
+tr.del td.code { background: var(--del-bg); }
+tr.del td.num { background: var(--del-num-bg); }
+tr.add td.code::before { content: "+"; color: var(--muted); margin-right: 6px; }
+tr.del td.code::before { content: "-"; color: var(--muted); margin-right: 6px; }
+tr.ctx td.code::before { content: " "; margin-right: 6px; }
+tr.comment td { padding: 8px 12px 8px 116px; background: var(--bg); white-space: normal; }
+.callout { border: 1px solid var(--callout-border); border-left-width: 4px; background: var(--callout-bg); border-radius: 6px; padding: 8px 12px; font-size: 14px; }
+.callout p { margin: 0 0 6px; } .callout p:last-child { margin: 0; }
+table.diff.split tr.comment td { padding-left: 56px; }
+table.diff.split td.add { background: var(--add-bg); }
+table.diff.split td.num.add { background: var(--add-num-bg); }
+table.diff.split td.del { background: var(--del-bg); }
+table.diff.split td.num.del { background: var(--del-num-bg); }
+table.diff.split td.empty { background: var(--surface); }
+.custom table { border-collapse: collapse; } .custom th, .custom td { border: 1px solid var(--border); padding: 4px 10px; text-align: left; }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+  main { padding: 16px; }
+}
+
+/* Notes layout. data-notes on <html> is the user's choice (margin | inline); the page script
+   substitutes "below" for margin when the file block is too narrow or in split view. */
+.file-body { display: grid; grid-template-columns: minmax(0, 1fr); position: relative; }
+.file-body.has-margin { grid-template-columns: minmax(0, 1fr) 340px; }
+.diff-col { min-width: 0; overflow-x: auto; overflow-y: hidden; }
+.notes-col { display: none; position: relative; border-left: 1px solid var(--border); background: var(--surface); }
+.file-body.has-margin .notes-col { display: block; }
+.notes-col .note { position: absolute; left: 12px; right: 12px; display: flex; gap: 6px; align-items: flex-start; }
+.notes-col .note .callout, .notes-below .note .callout { flex: 1; min-width: 0; }
+.note-marker { display: inline-block; min-width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 9px; background: var(--marker-bg); color: var(--marker-fg); font: 600 11px/18px var(--font); padding: 0 5px; vertical-align: middle; }
+td.code .note-marker { float: right; margin-left: 8px; cursor: pointer; }
+td.code .note-marker:hover { filter: brightness(1.15); }
+.note.active .callout { box-shadow: 0 0 0 2px var(--callout-border); }
+code.hint-target { cursor: default; }
+code.hint-target:hover { background: var(--callout-bg); border-radius: 3px; }
+.note .note-marker { flex: none; margin-top: 4px; }
+.notes-below { padding: 8px 12px 10px 60px; border-top: 1px solid var(--border); background: var(--surface); }
+.notes-below .note { margin: 6px 0; display: flex; gap: 6px; align-items: flex-start; }
+.notes-below .callout, .notes-col .callout { padding: 6px 10px; }
+td.code.note-anchor { box-shadow: inset 3px 0 0 var(--callout-border); }
+@media print {
+  /* Paper is white whatever the screen theme; the dark tokens would print grey on white. */
+  [data-theme="dark"] {
+    --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --border: #d0d7de; --surface: #f6f8fa; --link: #0969da;
+    --add-bg: #dafbe1; --add-num-bg: #aceebb; --del-bg: #ffebe9; --del-num-bg: #ffcecb; --hunk-bg: #ddf4ff; --hunk-fg: #0550ae;
+    --callout-bg: #fff8c5; --callout-border: #d4a72c; --code-bg: #f6f8fa; --add-fg: #1a7f37; --del-fg: #cf222e;
+    --marker-bg: #d4a72c; --marker-fg: #1f2328;
+  }
+  .sidebar { display: none; }
+  .layout { display: block; }
+  .file-body.has-margin { grid-template-columns: 1fr; }
+  .notes-col { display: none !important; }
+}
+
+/* Paged reports: prev/next links and the current chapter in the sidebar. */
+.pager { display: flex; justify-content: space-between; gap: 16px; margin: 24px 0; font-size: 14px; }
+.pager a { text-decoration: none; }
+.toc li.current > a { font-weight: 600; }
+.chapter-list { padding-left: 20px; }
+.chapter-list li { margin: 10px 0; }
+.chapter-list .intro { margin: 2px 0 0; font-size: 14px; color: var(--muted); }
+.report-header h1 a { color: inherit; text-decoration: none; }
+
+/* Collapsed blocks: exclusion list under the title, excluded files in Other changes, the full file list on chapter pages. */
+details.excluded { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+details.excluded summary, details.all-files summary { cursor: pointer; }
+details.excluded ul { margin: 6px 0 0; padding-left: 18px; }
+details.file.excluded > summary { list-style: none; display: flex; align-items: center; gap: 10px; }
+details.file.excluded > summary::-webkit-details-marker { display: none; }
+details.file.excluded > summary::before { content: "▸"; color: var(--muted); }
+details.file.excluded[open] > summary::before { content: "▾"; }
+details.all-files { margin-top: 12px; font-size: 13px; color: var(--muted); }
+
+/* Viewed: a manual tick per file. The block folds to its header; the sidebar and the
+   progress rail show how much of the change has been looked at. */
+.sidebar-top { display: flex; flex-wrap: wrap; gap: 6px; }
+.file-header .viewed { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
+.file-header .viewed input { accent-color: var(--add-fg); width: 14px; height: 14px; margin: 0; }
+.file.is-viewed > .file-header { color: var(--muted); }
+.file.is-viewed > .file-header .path::before { content: "✓ "; color: var(--add-fg); }
+.file.is-viewed > .file-body { display: none; }
+.file-index li.is-viewed a { color: var(--muted); }
+.file-index li.is-viewed a::before { content: "✓ "; color: var(--add-fg); }
+.viewed-progress { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.viewed-progress .rail { flex: 1; height: 4px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.viewed-progress .fill { height: 100%; width: 0; background: var(--add-fg); transition: width .2s ease; }
+.chapter-list .viewed-of { margin-left: 8px; font-size: 12px; color: var(--muted); }
+.chapter-list li.is-viewed > a { color: var(--muted); }
+.chapter-list li.is-viewed > a::before { content: "✓ "; color: var(--add-fg); }
+@media (prefers-reduced-motion: reduce) { .viewed-progress .fill { transition: none; } }
+
+/* Hint row: the notes for a hovered line, inserted under it so the code below moves down
+   rather than being covered. The gutter cell keeps the line-number columns aligned. */
+tr.hint-row td { padding: 4px 12px 8px 8px; background: var(--bg); white-space: normal; }
+tr.hint-row td.hint-gutter { background: var(--surface); padding: 0; }
+tr.hint-row .callout { box-shadow: 0 2px 8px rgba(0,0,0,.12); }
+tr.hint-row .callout + .callout { margin-top: 6px; }
+tr.hint-row.pinned .callout { border-left-width: 4px; }
+.notes-col .note { transition: transform .12s ease; }
+@media (prefers-reduced-motion: reduce) { .notes-col .note { transition: none; } }
+
+/* Covers: what a test file pins and what it leaves untested, shown before its diff. */
+.covers { display: flex; gap: 10px; align-items: baseline; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--callout-bg); font-size: 14px; }
+.covers p { margin: 0; }
+.covers-label { flex: none; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.file.is-viewed > .covers { display: none; }
+
+/* Chapter progress: "3/5" beside a sidebar entry, a tick once every file in the chapter is viewed. */
+.toc li .chapter-progress { margin-left: 6px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.toc li.is-viewed > a { color: var(--muted); }
+.toc li.is-viewed > a::before { content: "✓ "; color: var(--add-fg); }
+.chapter .chapter-viewed { margin: -6px 0 12px; font-size: 13px; color: var(--muted); }
+.chapter.is-viewed .chapter-viewed { color: var(--add-fg); }
+.chapter.is-viewed .chapter-viewed::before { content: "✓ "; }

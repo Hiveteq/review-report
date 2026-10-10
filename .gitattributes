@@ -1,0 +1,4 @@
+# Every text file is checked out with LF on every OS. The test fixtures compare exact diff text,
+# including a trailing tab, so a CRLF checkout on Windows must not rewrite them.
+* text=auto eol=lf
+*.png binary

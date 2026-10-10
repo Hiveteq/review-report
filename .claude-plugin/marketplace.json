@@ -1,0 +1,13 @@
+{
+  "name": "hiveteq",
+  "owner": { "name": "Hiveteq", "url": "https://github.com/Hiveteq" },
+  "description": "Claude Code plugins by Hiveteq",
+  "plugins": [
+    {
+      "name": "review-report",
+      "source": "./",
+      "description": "HTML walkthrough reports of diffs, branches and PRs with clear line-by-line explanations.",
+      "version": "0.1.0"
+    }
+  ]
+}
