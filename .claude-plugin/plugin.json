@@ -1,7 +1,7 @@
 {
   "name": "review-report",
   "displayName": "Review Report",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Turn a diff, branch or PR into an HTML walkthrough: execution-order chapters, clear margin notes on lines, key terms, diagrams.",
   "author": { "name": "Hiveteq", "url": "https://github.com/Hiveteq" },
   "homepage": "https://github.com/Hiveteq/review-report",

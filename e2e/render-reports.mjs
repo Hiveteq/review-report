@@ -49,6 +49,34 @@ function longChange() {
   return { story, diff };
 }
 
+// The demo story with every diagram shape the skill asks for on one page: the marked flowchart it
+// already has, a before/after pair, a state machine, a sequence and an entity diagram.
+function diagramsStory(story) {
+  const fence = (body) => `\n\n\`\`\`mermaid\n${body}\n\`\`\``;
+  const s = structuredClone(story);
+  s.meta = { ...s.meta, title: 'Every diagram shape' };
+  s.overview.approach += fence([
+    'flowchart LR',
+    '  subgraph before["Before (base)"]',
+    '    direction TB',
+    '    A1[Request] --> D1[(Database)]',
+    '  end',
+    '  subgraph after["After (this change)"]',
+    '    direction TB',
+    '    A2[Request] --> C2{Cache hit?}',
+    '    C2 -->|no| D2[(Database)]',
+    '    C2 -->|yes| R2[Cached reply]',
+    '  end',
+    '  before ~~~ after',
+    '  classDef new fill:#dafbe1,stroke:#1a7f37',
+    '  class C2,R2 new',
+  ].join('\n'));
+  s.chapters[0].intro += fence('stateDiagram-v2\n  [*] --> Raw\n  Raw --> Valid: Name.of()\n  Raw --> Rejected: blank\n  Valid --> [*]');
+  s.chapters[1].intro += fence('sequenceDiagram\n  Caller->>Greeter: greet(name)\n  Greeter->>Name: value()\n  Greeter-->>Caller: "Hello Ada"');
+  s.chapters[2].intro += fence('erDiagram\n  AUTHOR ||--o{ BOOK : writes\n  BOOK { string isbn PK }');
+  return s;
+}
+
 export default function renderReports() {
   rmSync(REPORTS, { recursive: true, force: true });
   mkdirSync(join(REPORTS, 'input'), { recursive: true });
@@ -63,6 +91,7 @@ export default function renderReports() {
   render(story, moved, 'rerendered.html', '--single');
   // Same diff, another title: a different report open in parallel.
   render({ ...story, meta: { ...story.meta, title: 'Another report' } }, diff, 'other.html', '--single');
+  render(diagramsStory(story), diff, 'diagrams.html', '--single');
   const long = longChange();
   render(long.story, long.diff, 'long.html', '--single');
 }

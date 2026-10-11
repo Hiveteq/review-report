@@ -49,6 +49,10 @@ h2 { font-size: 20px; border-bottom: 1px solid var(--border); padding-bottom: 6p
 .intro { margin-bottom: 16px; }
 .diagram { margin: 16px 0; }
 .diagram pre.mermaid { background: var(--surface); text-align: center; }
+/* Nodes marked `new` or `changed` keep their light green and yellow fills in both themes, so their
+   text stays dark. Mermaid's dark theme would make it light and almost invisible on those fills. */
+pre.mermaid g.node.new .nodeLabel, pre.mermaid g.node.changed .nodeLabel { color: #1f2328 !important; }
+pre.mermaid g.node.new text, pre.mermaid g.node.changed text { fill: #1f2328 !important; }
 figcaption { color: var(--muted); font-size: 14px; margin-top: 6px; }
 
 .file { border: 1px solid var(--border); border-radius: 6px; margin: 16px 0; overflow: clip; }

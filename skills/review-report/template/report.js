@@ -38,20 +38,30 @@
   });
 
   // Mermaid re-renders from the saved source so a theme change repaints diagrams.
-  // Each diagram gets its own run: a syntax error in one leaves the others rendered
-  // and only the broken one falls back to its source text.
+  // Mermaid cannot render two diagrams at once: concurrent runs draw into each other's
+  // boxes and leave others empty. So all renders go through one queue, one diagram at a
+  // time. A theme change starts a new generation; queued work from the old one is skipped.
+  // Each diagram gets its own run: a syntax error in one leaves the others rendered and
+  // only the broken one falls back to its source text.
+  var diagramQueue = Promise.resolve();
+  var diagramGeneration = 0;
   function renderDiagrams(theme) {
     if (typeof mermaid === 'undefined') return;
     var nodes = document.querySelectorAll('pre.mermaid');
     if (!nodes.length) return;
-    try { mermaid.initialize({ startOnLoad: false, theme: theme === 'dark' ? 'dark' : 'default' }); } catch (e) { return; }
+    var generation = ++diagramGeneration;
+    var unusable = false;
+    function current() { return generation === diagramGeneration; }
+    diagramQueue = diagramQueue.then(function () {
+      if (current()) mermaid.initialize({ startOnLoad: false, theme: theme === 'dark' ? 'dark' : 'default' });
+    }).catch(function () { unusable = true; }); // every diagram keeps what it shows now
     nodes.forEach(function (n) {
       function restore() { n.textContent = n.dataset.source; n.removeAttribute('data-processed'); }
-      restore();
-      try {
-        var p = mermaid.run({ nodes: [n] });
-        if (p && p.catch) p.catch(restore); // a syntax error rejects asynchronously
-      } catch (e) { restore(); }
+      diagramQueue = diagramQueue.then(function () {
+        if (!current() || unusable) return;
+        restore();
+        return mermaid.run({ nodes: [n] });
+      }).catch(restore); // a syntax error rejects; the queue moves on to the next diagram
     });
   }
 
