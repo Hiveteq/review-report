@@ -50,7 +50,8 @@ function longChange() {
 }
 
 // The demo story with every diagram shape the skill asks for on one page: the marked flowchart it
-// already has, a before/after pair, a state machine, a sequence and an entity diagram.
+// already has, a before/after pair, a state machine, a sequence, an entity diagram, and a flow too
+// wide for the column.
 function diagramsStory(story) {
   const fence = (body) => `\n\n\`\`\`mermaid\n${body}\n\`\`\``;
   const s = structuredClone(story);
@@ -74,6 +75,8 @@ function diagramsStory(story) {
   s.chapters[0].intro += fence('stateDiagram-v2\n  [*] --> Raw\n  Raw --> Valid: Name.of()\n  Raw --> Rejected: blank\n  Valid --> [*]');
   s.chapters[1].intro += fence('sequenceDiagram\n  Caller->>Greeter: greet(name)\n  Greeter->>Name: value()\n  Greeter-->>Caller: "Hello Ada"');
   s.chapters[2].intro += fence('erDiagram\n  AUTHOR ||--o{ BOOK : writes\n  BOOK { string isbn PK }');
+  const stages = ['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+  s.chapters[3].intro += fence(`flowchart LR\n  ${stages.map((n) => `${n}[Stage ${n} of the pipeline]`).join(' --> ')}`);
   return s;
 }
 
