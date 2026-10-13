@@ -64,11 +64,15 @@ and `git`.
 
 ```
 /review-report:review-report            # current branch against main or master
-/review-report:review-report #123       # a pull request (needs the gh CLI)
+/review-report:review-report #123       # a pull request
 /review-report:review-report v1..v2     # any git range
 /review-report:review-report abc123     # one commit
 /review-report:review-report --staged   # staged changes; --working for the working tree
 ```
+
+Pull requests work without the GitHub CLI: the script fetches them with git. With `gh` installed and logged in,
+the report header shows the real branch names and Claude can read the pull request's description, so install
+it for the best result.
 
 ## Install as a skill folder instead
 
@@ -101,7 +105,7 @@ text.
    before reporting back.
 
 The script uses only Node's built-in modules, so there is nothing to install with npm. It needs Node 22 or newer
-and `git`; the `gh` CLI only for pull-request targets.
+and `git`; the `gh` CLI is optional and improves pull-request reports.
 
 ## Contributing
 

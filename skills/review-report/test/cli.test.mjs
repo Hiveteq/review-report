@@ -226,12 +226,88 @@ test('.gitignore is left alone when git already ignores the output path by any p
   assert.ok(!r.stdout.includes('note: added'));
 });
 
-test('--context with a PR target prints a warning because gh pr diff ignores it', () => {
+// A local stand-in for GitHub: a bare repository holding master and PR 7 as refs/pull/7/head.
+// open: master has moved on and refs/pull/7/merge holds the test merge GitHub computes.
+// merged: the PR was merged into master with a merge commit, so there is no merge ref.
+// closed: master has moved on, the PR was never merged, and there is no merge ref.
+// Returns a fresh clone which, like any clone, has no refs/pull/* until review-report fetches them.
+function cloneWithPullRequest(state) {
+  const bare = realpathSync.native(mkdtempSync(join(tmpdir(), 'rr-remote-')));
+  assert.equal(spawnSync('git', ['init', '-q', '--bare', '-b', 'master'], { cwd: bare }).status, 0);
+  const work = tempRepo();
+  writeFileSync(join(work, 'a.txt'), 'one\n');
+  git(work, 'add', '-A');
+  git(work, 'commit', '-qm', 'base');
+  git(work, 'switch', '-qc', 'feature');
+  writeFileSync(join(work, 'a.txt'), 'one\ntwo\n');
+  git(work, 'commit', '-qam', 'pr change');
+  git(work, 'switch', '-q', 'master');
+  writeFileSync(join(work, 'later.txt'), 'master moved on\n');
+  git(work, 'add', '-A');
+  git(work, 'commit', '-qm', 'later on master');
+  git(work, 'remote', 'add', 'origin', bare);
+  git(work, 'push', '-q', 'origin', 'feature:refs/pull/7/head');
+  if (state === 'open') {
+    git(work, 'switch', '-q', '--detach', 'master');
+    git(work, 'merge', '-q', '--no-ff', '-m', 'Merge pull request 7', 'feature');
+    git(work, 'push', '-q', 'origin', 'HEAD:refs/pull/7/merge');
+    git(work, 'push', '-q', 'origin', 'master');
+  } else if (state === 'merged') {
+    git(work, 'merge', '-q', '--no-ff', '-m', 'Merge pull request 7', 'feature');
+    git(work, 'push', '-q', 'origin', 'master');
+  } else {
+    git(work, 'push', '-q', 'origin', 'master');
+  }
+  const client = realpathSync.native(mkdtempSync(join(tmpdir(), 'rr-client-')));
+  const c = spawnSync('git', ['clone', '-q', bare, client], { encoding: 'utf8' });
+  assert.equal(c.status, 0, c.stderr);
+  return client;
+}
+const withoutGh = { ...process.env, REVIEW_REPORT_WITHOUT: 'gh' };
+
+for (const state of ['open', 'merged', 'closed']) {
+  test(`an ${state} PR is fetched with git when gh is unavailable, with a note suggesting gh`, () => {
+    const client = cloneWithPullRequest(state);
+    const r = run(['--dump-diff', '--target', '#7'], client, withoutGh);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /^\+two$/m, 'the PR change is in the diff');
+    assert.doesNotMatch(r.stdout, /later\.txt/, 'changes made on master after the PR branched are not');
+    assert.match(r.stderr, /^note: gh is not installed; fetched PR #7 with git instead\. Install gh/m);
+    assert.doesNotMatch(r.stdout, /^note:/m, 'notes stay off stdout, which carries the diff');
+  });
+}
+
+test('fetching a PR moves no branches, tags or remote-tracking refs', () => {
+  const client = cloneWithPullRequest('closed');
+  const listRefs = () => git(client, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads', 'refs/tags', 'refs/remotes');
+  const before = listRefs();
+  assert.equal(run(['--dump-diff', '--target', '#7'], client, withoutGh).status, 0);
+  assert.equal(run(['--dump-diff', '--target', '#7'], client, withoutGh).status, 0, 'a repeat run overwrites its refs');
+  assert.equal(listRefs(), before, 'branches, tags and remote-tracking refs are unchanged');
+});
+
+test('a closed PR is compared with the default branch, and a note says which', () => {
+  const client = cloneWithPullRequest('closed');
+  const r = run(['--dump-diff', '--target', '#7'], client, withoutGh);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^\+two$/m);
+  assert.doesNotMatch(r.stdout, /later\.txt/);
+  assert.match(r.stderr, /^note: compared PR #7 with origin's default branch \(master\)\. If it targets another branch, pass --target origin\/<branch>\.\.\.refs\/review-report\/pr\/7\/head$/m);
+});
+
+test('a PR that no remote has is an error line naming the fix', () => {
+  const client = cloneWithPullRequest('open');
+  const r = run(['--dump-diff', '--target', '#99'], client, withoutGh);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /^error: cannot resolve diff for target #99: PR #99 not found on origin\. Install gh, or pass --target <base>\.\.\.<head>\./m);
+  assert.match(r.stderr, /^note: gh is not installed; fetched PR #99 with git instead\./m, 'notes survive an error');
+});
+
+test('--context with a PR read from --diff-file prints no gh note: gh was never asked', () => {
   const dir = tempRepo();
-  // gh is not consulted for --diff-file, so only the warning path is exercised.
   const r = run(['--story', fixtureStory, '--diff-file', fixtureDiff, '--target', '#12', '--context', '8'], dir);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stderr, /^warning: --context is ignored for PR targets/m);
+  assert.doesNotMatch(r.stderr, /note: gh|--context is ignored/);
 });
 
 test('an unwritable output path is an error line, and a stuck .gitignore is only a note', () => {
