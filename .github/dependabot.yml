@@ -6,7 +6,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    commit-message: # "build(deps): bump …", per the convention in AGENTS.md
+      prefix: build
+      include: scope
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    commit-message: # "ci(deps): bump …"
+      prefix: ci
+      include: scope
