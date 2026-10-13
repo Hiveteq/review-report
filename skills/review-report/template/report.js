@@ -60,10 +60,38 @@
       diagramQueue = diagramQueue.then(function () {
         if (!current() || unusable) return;
         restore();
-        return mermaid.run({ nodes: [n] });
+        return Promise.resolve(mermaid.run({ nodes: [n] })).then(function () { fitDiagram(n.closest('figure.diagram')); });
       }).catch(restore); // a syntax error rejects; the queue moves on to the next diagram
     });
   }
+
+  // A diagram wider than its column is shrunk to fit: the whole flow stays in view, but its text
+  // can get small. Diagrams shrunk by more than a tenth get a "Full size" button; a smaller shrink
+  // leaves the text readable, and a button there would be noise. The button draws the diagram at
+  // its natural width and lets the box scroll sideways. The choice lives on the figure, so the
+  // re-render after a theme change keeps it.
+  function fitDiagram(fig) {
+    var svg = fig && fig.querySelector('pre.mermaid svg');
+    if (!svg || !svg.viewBox || !svg.viewBox.baseVal || !svg.viewBox.baseVal.width) return;
+    var natural = svg.viewBox.baseVal.width;
+    var full = fig.classList.contains('full');
+    svg.style.width = full ? natural + 'px' : '';
+    svg.style.maxWidth = full ? 'none' : natural + 'px';
+    var shrunk = !full && svg.getBoundingClientRect().width < natural * 0.9;
+    var button = fig.querySelector('.diagram-size');
+    if (!button && (shrunk || full)) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'diagram-size';
+      button.addEventListener('click', function () { fig.classList.toggle('full'); fitDiagram(fig); });
+      fig.insertBefore(button, fig.firstChild);
+    }
+    if (!button) return;
+    button.hidden = !(shrunk || full);
+    button.textContent = full ? 'Fit to width' : 'Full size';
+    button.setAttribute('aria-pressed', full ? 'true' : 'false');
+  }
+  function fitDiagrams() { document.querySelectorAll('figure.diagram').forEach(fitDiagram); }
 
   // Highlight only languages this hljs bundle ships; an unknown one would log two
   // console lines per row and change nothing. plaintext stays: it adds the .hljs
@@ -593,6 +621,7 @@
       if (window.innerWidth === laidOutWidth) return;
       laidOutWidth = window.innerWidth;
       layoutAll();
+      fitDiagrams(); // a narrower window can shrink a diagram that fitted before
     }, 100);
   });
 
