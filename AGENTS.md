@@ -66,13 +66,13 @@ CI runs `npm test` on Linux, macOS and Windows. It also fails when the committed
 - A new test must fail when the behaviour it covers is broken. Break the code on purpose once and watch it fail.
 - No retries. Before adding a test, run `npx playwright test --repeat-each 5`.
 
-## Privacy
+## Fixtures and examples
 
-People run this skill on private code. None of it may reach this repository.
+Fixtures, tests, examples and screenshots use the demo code: the Greeter change in `test/` and the
+reports built in `e2e/render-reports.mjs`. Code copied from elsewhere would bring its own license and
+make the examples harder to follow.
 
-- Fixtures, tests, examples, screenshots and issue snippets use made-up code only.
-- Never copy code, file paths, project names or wording from a diff you reviewed with the skill.
-  That includes "realistic" examples in `story-schema.md`, `reader-pass.md` and test cases.
+- Write new examples from scratch, including those in `story-schema.md` and `reader-pass.md`.
 - Rendered reports belong in `reports/`, which git ignores.
 
 ## Changing the skill text
@@ -82,7 +82,7 @@ A wording change to `SKILL.md` or `reference/` changes agent behaviour, so test 
 1. Pick two or three real diffs of different sizes and stacks.
 2. Run a fresh agent with the old text, then with the new text. Keep the story, the render output
    and the reader-pass questions from both runs.
-3. In the pull request, describe what changed in the reports. Do not attach private diffs or reports.
+3. In the pull request, describe what changed in the reports.
 
 ## Pull requests
 

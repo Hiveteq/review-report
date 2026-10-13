@@ -7,4 +7,4 @@
 - [ ] Page or stylesheet change: `npm run e2e` passes and a screenshot is attached
 - [ ] Renderer, page or stylesheet change: `npm run example` re-run and the example report committed
 - [ ] Skill text change: checked on a few real diffs
-- [ ] No private code, project names or internal documents in examples, tests or screenshots
+- [ ] Examples, tests and screenshots use the demo code (see AGENTS.md)

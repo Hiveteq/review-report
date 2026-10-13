@@ -1,6 +1,6 @@
 // Playwright globalSetup: renders every report the browser tests open, into a fresh folder under the
 // system temp directory. All inputs are made up: the demo Greeter fixture from the unit tests, variants
-// of it, and a generated long file for scrolling. Nothing comes from a real project.
+// of it, and a generated long file for scrolling.
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
