@@ -1,95 +1,111 @@
 # review-report
 
-A [Claude Code](https://claude.com/claude-code) skill that turns a diff, branch or pull request into a
-self-contained HTML walkthrough for a reviewer who knows the codebase but has not seen the change.
+**Read a code change as a story, not as a list of files.**
 
-Model-written changes are often correct and still hard to review: the explanation is compressed, the order is
-the file order, and the reasoning lives in the model's head. This skill makes Claude write a short **story**
-instead: an overview that places the change in the known flow, with Mermaid diagrams that mark what is new, and
-chapters that walk the diff **in the order it executes**, with plain-English notes anchored to specific lines. A zero-dependency Node renderer joins the story
-with the real diff and emits one HTML file. Claude never hand-writes HTML and never copies diff text.
+review-report is a [Claude Code](https://claude.com/claude-code) skill. Point it at a branch, a pull request or a
+commit range. Claude studies the change and hands you a guided walkthrough: one HTML page with an overview,
+diagrams, and the diff in chapters, with plain-English notes on the lines that need them.
 
-![Report with margin notes](docs/screenshots/report-margin-light.png)
+![A walkthrough with an overview diagram and notes beside the code](docs/screenshots/report-margin-light.png)
 
-## What the report gives you
+## Why
 
-- **Reading order that follows the change**, not the file list: entry point first, then what it calls.
-- **Notes beside the code**, numbered, level with the line they explain. Hover an annotated line to open its
-  note right under it; the code below moves down rather than being covered. Click the number to pin it. A toggle switches to GitHub-style inline rows.
-- **GitHub-grade diffs**: syntax highlighting, light and dark themes, one unified-or-split setting for the whole
-  report that keeps your place when it switches.
-- **Mark files as viewed**, by hand only, like GitHub: the block folds, the sidebar ticks it, and a progress rail
-  shows how much of the change you have looked at. Ticks are stored per report and per diff, so two reports open
-  side by side never share them, and a re-render that changed a file drops that file's tick.
-- **New terms** up front: only what the change introduces, never what the reviewer already knows.
-- **Nothing hidden**: hunks no chapter mentions are collected under "Other changes", and the renderer refuses a
-  story that shows less than 80% of the changed lines. Whether the notes are enough is decided by a reader
-  pass: a fresh agent with the report and the pre-change code must explain every chapter back without guessing.
+A pull request lists files alphabetically. The change itself has an order: something triggers it, and each step
+calls the next. Reviewers rebuild that order in their heads, one file at a time. The reasoning behind the code is
+usually not in the diff at all.
 
-![Note opened under a hovered line](docs/screenshots/hover-hint.png)
+This gets harder as AI agents write more of the code. Changes arrive larger and faster than anyone can read cold.
 
-## Install
+review-report gives that reconstruction to Claude, then checks the result:
 
-**As a skill folder** (any Claude Code setup):
+- **It is the real diff.** The page is built from git's output; Claude only writes the explanation around it.
+- **Nothing is quietly left out.** At least 80% of the changed lines must sit in a chapter. The rest is listed
+  under "Other changes", and generated files are named with the reason they were skipped.
+- **The explanation is tested before you see it.** A second agent, fresh, reads the report with only the
+  pre-change code and lists every place it had to guess. Claude closes those gaps with notes.
 
-```bash
-git clone https://github.com/Hiveteq/review-report.git
-ln -s "$(pwd)/review-report/skills/review-report" ~/.claude/skills/review-report
-```
+## Quick start
 
-or copy `skills/review-report/` into `~/.claude/skills/`.
-
-**As a plugin** (Claude Code plugin marketplace):
+Install it as a plugin:
 
 ```
 /plugin marketplace add Hiveteq/review-report
 /plugin install review-report@hiveteq
 ```
 
-When installed as a plugin the command is `/review-report:review-report`; as a skill folder it is `/review-report`.
-
-Either way you need Node 22 or newer and `git`; `gh` is needed for pull-request targets.
-
-## Use
-
-In Claude Code, inside the repository you want explained:
+Then, inside the repository you want to review:
 
 ```
-/review-report            # current branch vs master or main
-/review-report #123       # a pull request, via gh
-/review-report v1..v2     # any git range
-/review-report abc123     # one commit, against its parent
-/review-report --staged   # or --working (tracked files; `git add -N` a new file to include it)
+/review-report:review-report
 ```
 
-The report lands in `reports/review/<date>-<title>.html` in that repository, and the folder is added to
-`.gitignore` on first use. Open the file in a browser. Long reports become a folder of pages, one per chapter,
-with `index.html` as the entry.
+Claude writes the walkthrough to `reports/review/` in that repository and gives you its path. You need Node 22 or newer
+and `git`.
+
+## What you get
+
+- **The overview first.** Where the change sits in the existing design, why it was made, and how it works.
+  Diagrams show the flow you know, with new and changed parts highlighted, or a before-and-after pair when the
+  flow changes shape.
+- **Chapters in the order the code runs.** The entry point comes first, then what it calls. Storage, types and
+  configuration appear with the first step that needs them. Tests sit beside the code they prove, each with a
+  line on what it covers and what it does not.
+- **Notes beside the code.** Numbered, level with their line. Hover a line to open its note right below it, or
+  switch to GitHub-style inline notes.
+
+  ![A note opened under the hovered line](docs/screenshots/hover-hint.png)
+- **Diffs that feel like GitHub's.** Syntax highlighting, light and dark themes, unified or split view. Switching
+  keeps your place.
+- **Viewed ticks.** Tick a file and it folds; chapters and a progress bar show what is left. Ticks survive a
+  re-render, except for files whose diff changed since you ticked them.
+- **One file to keep or share.** Large changes become a small folder of pages, one per chapter.
+
+## Targets
+
+```
+/review-report:review-report            # current branch against main or master
+/review-report:review-report #123       # a pull request (needs the gh CLI)
+/review-report:review-report v1..v2     # any git range
+/review-report:review-report abc123     # one commit
+/review-report:review-report --staged   # staged changes; --working for the working tree
+```
+
+## Install as a skill folder instead
+
+Without the plugin system, link or copy the skill into your skills folder:
+
+```bash
+git clone https://github.com/Hiveteq/review-report.git
+ln -s "$(pwd)/review-report/skills/review-report" ~/.claude/skills/review-report
+```
+
+The command is then `/review-report`.
+
+## Privacy
+
+The skill adds no service of its own. Claude reads your code the way it does in any Claude Code session, and the
+walkthrough is a local file that is never uploaded. The `reports/` folder is added to `.gitignore` on first use.
+
+When you open a walkthrough, the page loads highlight.js and Mermaid from public CDNs. Both are pinned to exact
+versions with integrity hashes, and your code stays in the page. Offline, the page still works and shows plain
+text.
 
 ## How it works
 
-1. `render.mjs --dump-numbered` prints the diff with old and new line numbers on every line.
-2. Claude writes the story JSON. The contract, error messages and a complete example are in
-   [`skills/review-report/reference/story-schema.md`](skills/review-report/reference/story-schema.md).
-3. `render.mjs --story <file>` validates the story (every error names its field), slices the referenced
-   hunks from the real diff, attaches the notes and writes the page.
-4. Claude opens the page, takes a screenshot and reads it before reporting done.
+1. A small Node script prints the diff with old and new line numbers on every line.
+2. Claude writes a **story**: an overview, chapters, and notes tied to line numbers. The format is documented
+   in [`story-schema.md`](skills/review-report/reference/story-schema.md).
+3. The script checks the story, takes the referenced lines from the real diff and writes the page. Every
+   error names the field to fix.
+4. A fresh agent reads the page and lists its guesses. Claude answers them, then looks at the page itself
+   before reporting back.
 
-Highlighting and diagrams load from CDNs at view time; without network the report shows plain text.
+The script has no dependencies beyond Node.
 
-## Development
+## Contributing
 
-```bash
-npm test        # node --test, no dependencies
-npm run example # re-render the reference example report
-npm run e2e     # browser tests in Chromium, Firefox and WebKit; needs `npm ci` and
-                # `npx playwright install chromium firefox webkit` first
-```
-
-CI runs the tests on Linux, macOS and Windows and the browser check on all three engines. Highlighting and
-diagrams load from CDNs; offline, the report still works and shows plain text.
-
-Contributions: see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Bug reports and pull requests are welcome. Start with [`CONTRIBUTING.md`](CONTRIBUTING.md); coding agents
+should read [`AGENTS.md`](AGENTS.md).
 
 ## License
 
