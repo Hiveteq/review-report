@@ -211,8 +211,8 @@ test('a PR without a merge ref is compared with the default branch, and a note n
     [`${GIT} -U3 ${PR('base')}...${PR('head')}`]: 'CLOSED',
   });
   assert.equal(resolveDiff('#12', 3, run, notes), 'CLOSED');
-  assert.equal(notes[1], `compared PR #12 with origin's default branch (main). If it targets another branch, ` +
-    `pass --target origin/<branch>...${PR('head')}`);
+  const otherBase = `pass --target origin/<branch>...${PR('head')}`;
+  assert.equal(notes[1], `compared PR #12 with origin's default branch (main). If it targets another branch, ${otherBase}`);
 });
 
 test('a PR merged with a merge commit is diffed from the default branch just before that merge', () => {

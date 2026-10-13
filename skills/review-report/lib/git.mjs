@@ -112,9 +112,9 @@ function resolvePr(pr, context, run, notes) {
     return diff;
   } catch (e) {
     ghMissing = e.code === 'ENOENT';
+    const benefit = 'for exact branch names in the report header and the PR description for Claude to read';
     notes.push(ghMissing
-      ? `gh is not installed; fetched PR #${pr} with git instead. Install gh (https://cli.github.com) for exact branch ` +
-        'names in the report header and the PR description for Claude to read.'
+      ? `gh is not installed; fetched PR #${pr} with git instead. Install gh (https://cli.github.com) ${benefit}.`
       : `gh could not fetch it (${firstLine(e)}); fetched PR #${pr} with git instead.`);
   }
   const fetched = fetchPr(pr, run, ghMissing);
@@ -158,8 +158,8 @@ function prRange(pr, { remote, head, merge }, run, notes) {
     return prSide === current ? [`${merge}^1`, merge] : [`${merge}^1...${head}`];
   }
   const { ref: base, name } = fetchDefaultBranch(pr, remote, run);
-  notes.push(`compared PR #${pr} with ${remote}'s default branch (${name}). If it targets another branch, ` +
-    `pass --target ${remote}/<branch>...${head}`);
+  const otherBase = `pass --target ${remote}/<branch>...${head}`;
+  notes.push(`compared PR #${pr} with ${remote}'s default branch (${name}). If it targets another branch, ${otherBase}`);
   if (!isAncestor(head, base, run)) return [`${base}...${head}`];
   const mergedBy = run('git', ['rev-list', '--first-parent', '--ancestry-path', '--reverse', `${head}..${base}`])
     .split('\n')[0].trim();
