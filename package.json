@@ -1,6 +1,6 @@
 {
   "name": "review-report",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Claude Code skill that turns a diff, branch or PR into an HTML walkthrough with plain-English line notes",
   "type": "module",
