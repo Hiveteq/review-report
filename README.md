@@ -100,7 +100,8 @@ text.
 4. A fresh agent reads the page and lists its guesses. Claude answers them, then looks at the page itself
    before reporting back.
 
-The script has no dependencies beyond Node.
+The script uses only Node's built-in modules, so there is nothing to install with npm. It needs Node 22 or newer
+and `git`; the `gh` CLI only for pull-request targets.
 
 ## Contributing
 
