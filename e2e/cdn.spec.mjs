@@ -1,3 +1,4 @@
+// @ts-check
 // Highlighting and diagrams come from pinned CDN files; without them the page must still work.
 import { test, expect, reportUrl } from './reports.mjs';
 
@@ -5,6 +6,7 @@ test.describe('with the CDNs reachable', () => {
   test.use({ cdn: true });
 
   test('the pinned highlight.js and Mermaid files load and pass their integrity checks', async ({ page }) => {
+    /** @type {string[]} */
     const consoleErrors = [];
     page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 

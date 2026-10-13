@@ -28,6 +28,8 @@ using it; usage is in [README.md](README.md).
 ```bash
 npm test                 # unit and CLI tests, Node 22 or newer, no install needed
 npm ci && npx playwright install chromium firefox webkit
+npm run lint             # ESLint: modern JavaScript rules
+npm run typecheck        # tsc over tsconfig.json (no emit): JSDoc types
 npm run e2e              # browser tests; run them for any change to template/ or lib/html.mjs
 npm run example          # re-render reference/example-report.html from the fixture
 npm run screenshots      # re-render docs/screenshots/ from the fixture
@@ -35,9 +37,16 @@ npm run update-cdn       # move the pinned CDN files to their newest releases
 ```
 
 CI runs `npm test` on Linux, macOS and Windows. It also fails when the committed example report is stale.
+A `lint` job runs `npm run lint` and `npm run typecheck`.
 
 ## Rules
 
+- **Modern JavaScript, checked.** ES2022: `const`/`let`, arrow callbacks, template literals, `?.`/`??`,
+  ES modules with `node:` imports (the page script in `template/` is one classic browser script).
+  Every file starts with `// @ts-check` (after any shebang) and documents types in JSDoc.
+  There is no build step and no `.ts` file. `npm run lint` and `npm run typecheck` must pass.
+- **New JavaScript files.** A file outside the folders already checked must be added to both the `lint` script in
+  `package.json` and the `include` list in `tsconfig.json`; otherwise a check may miss it.
 - **No runtime dependencies.** The renderer runs with a bare `node`. Playwright is for the browser check only.
 - **Tests first.** A change to `lib/` or `render.mjs` comes with a test that failed before the change.
 - **Portable code.** Spawn processes with `execFileSync` or `spawnSync` and an argument array, never a shell.

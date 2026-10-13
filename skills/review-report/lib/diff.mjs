@@ -1,3 +1,4 @@
+// @ts-check
 // Parses `git diff` unified output into files → hunks → numbered lines.
 // Pure function: no I/O. Line numbers are computed by walking each hunk,
 // so downstream code can anchor comments by old-side or new-side number.
@@ -5,9 +6,45 @@
 // Header-only entries (binary files, mode-only changes, pure renames, empty
 // files) have no ---/+++ lines; their paths come from the `diff --git` line.
 
+/**
+ * One line of a hunk, numbered on each side it exists on: an added line has no old number and a
+ * deleted line has no new one. content is the line without its +, - or space marker.
+ * @typedef {{ type: 'add', old: null, new: number, content: string }
+ *   | { type: 'del', old: number, new: null, content: string }
+ *   | { type: 'ctx', old: number, new: number, content: string }} DiffLine
+ */
+
+/**
+ * @typedef {object} Hunk
+ * @property {number} oldStart
+ * @property {number} newStart
+ * @property {string} header the text after the closing @@, often the enclosing function
+ * @property {DiffLine[]} lines
+ * @property {Hunk} [sliceOf] the hunk this one was cut from, when a story shows only part of it
+ */
+
+/**
+ * @typedef {object} DiffFile
+ * @property {string} path the path to show: the old one for a deleted file, the new one otherwise
+ * @property {string} oldPath
+ * @property {string} newPath
+ * @property {'modified' | 'added' | 'deleted' | 'renamed'} status
+ * @property {boolean} binary
+ * @property {string | null} oldMode
+ * @property {string | null} newMode
+ * @property {Hunk[]} hunks
+ */
+
+/**
+ * @param {string} text unified diff, as `git diff` prints it
+ * @returns {DiffFile[]}
+ */
 export function parseDiff(text) {
+  /** @type {DiffFile[]} */
   const files = [];
+  /** @type {DiffFile | null} */
   let file = null;
+  /** @type {Hunk | null} */
   let hunk = null;
   let oldNo = 0;
   let newNo = 0;
@@ -16,10 +53,11 @@ export function parseDiff(text) {
   let newLeft = 0;
 
   // A BOM (some Windows editors add one when a diff is saved) would hide the first `diff --git`.
-  for (const raw of text.replace(/^﻿/, '').replace(/\r\n/g, '\n').split('\n')) {
+  for (const raw of text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').split('\n')) {
     if (raw.startsWith('diff --git ')) {
       const [a, b] = splitGitLine(raw.slice(11));
-      file = { path: null, oldPath: a, newPath: b, status: 'modified', binary: false, oldMode: null, newMode: null, hunks: [] };
+      // path is a placeholder until every header line is read; the loop after this one sets it.
+      file = { path: '', oldPath: a, newPath: b, status: 'modified', binary: false, oldMode: null, newMode: null, hunks: [] };
       files.push(file);
       hunk = null;
       continue;
@@ -75,6 +113,10 @@ export function parseDiff(text) {
 
 // `--- a/path` / `+++ b/path`: unquote, strip the a/ b/ prefix and the trailing
 // tab git adds when an unquoted path contains spaces. `/dev/null` stays as-is.
+/**
+ * @param {string} rest
+ * @returns {string}
+ */
 function headerPath(rest) {
   const p = unquotePath(rest.replace(/\t$/, ''));
   if (p === '/dev/null') return p;
@@ -84,9 +126,14 @@ function headerPath(rest) {
 // `diff --git a/X b/Y`. Either side may be C-quoted. Unquoted paths may contain
 // spaces, so when neither side is quoted try every " b/" split and prefer the
 // one where both sides name the same path (the common non-rename case).
+/**
+ * @param {string} rest
+ * @returns {string[]} the old and the new path
+ */
 function splitGitLine(rest) {
   const tokens = quotedTokens(rest);
   if (tokens) return tokens.map((t) => t.replace(/^[ab]\//, ''));
+  /** @type {[string, string][]} */
   const candidates = [];
   let idx = rest.indexOf(' b/');
   while (idx !== -1) {
@@ -100,8 +147,13 @@ function splitGitLine(rest) {
 }
 
 // Splits `X Y` where at least one of X, Y is a C-quoted string; null otherwise.
+/**
+ * @param {string} s
+ * @returns {string[] | null}
+ */
 function quotedTokens(s) {
   if (!s.includes('"')) return null;
+  /** @type {string[]} */
   const out = [];
   let i = 0;
   while (i < s.length && out.length < 2) {
@@ -129,9 +181,14 @@ const utf8Decoder = new TextDecoder('utf-8');
 // Decodes \ooo octal bytes as UTF-8 and the \t \n \" \\ escapes. Literal runs
 // are encoded whole, so a character outside the BMP (an emoji left raw under
 // core.quotePath=false) keeps both halves of its surrogate pair together.
+/**
+ * @param {string} p
+ * @returns {string}
+ */
 export function unquotePath(p) {
   if (!(p.length >= 2 && p.startsWith('"') && p.endsWith('"'))) return p;
   const inner = p.slice(1, -1);
+  /** @type {number[]} */
   const bytes = [];
   let literal = '';
   const flush = () => {
@@ -145,10 +202,12 @@ export function unquotePath(p) {
     const next = inner[i + 1];
     if (next === undefined) { bytes.push(92); break; } // dangling backslash in malformed input: keep it
     if (/[0-7]/.test(next)) {
-      const oct = inner.slice(i + 1, i + 4).match(/^[0-7]{1,3}/)[0];
+      // Cannot be null: the test above saw an octal digit right after the backslash.
+      const oct = /** @type {RegExpMatchArray} */ (inner.slice(i + 1, i + 4).match(/^[0-7]{1,3}/))[0];
       bytes.push(parseInt(oct, 8));
       i += oct.length;
     } else {
+      /** @type {Record<string, number>} */
       const map = { t: 9, n: 10, r: 13, '"': 34, '\\': 92, a: 7, b: 8, f: 12, v: 11 };
       bytes.push(map[next] ?? next.charCodeAt(0));
       i += 1;
@@ -161,12 +220,21 @@ export function unquotePath(p) {
 // git's "@@ -a,b +c,d @@ context" label for a parsed hunk. Like git, a count of
 // 1 is left out. Counts come from the parsed lines, so the label always matches
 // what is shown even when the input header was off.
+/**
+ * @param {Hunk} h
+ * @returns {string}
+ */
 export function hunkLabel(h) {
   const oldCount = h.lines.filter((l) => l.type !== 'add').length;
   const newCount = h.lines.filter((l) => l.type !== 'del').length;
   return `@@ -${hunkRange(h.oldStart, oldCount)} +${hunkRange(h.newStart, newCount)} @@ ${h.header}`.trimEnd();
 }
 
+/**
+ * @param {number} start
+ * @param {number} count
+ * @returns {string}
+ */
 function hunkRange(start, count) {
   return count === 1 ? String(start) : `${start},${count}`;
 }
@@ -174,6 +242,10 @@ function hunkRange(start, count) {
 // Human/LLM-readable dump with old and new line numbers on every line, so a
 // story author can copy anchor numbers instead of counting. Format per line:
 // "<old:5> <new:5> <marker><content>", "-" where a side has no number.
+/**
+ * @param {DiffFile[]} files
+ * @returns {string}
+ */
 export function formatNumbered(files) {
   const out = [];
   for (const f of files) {
@@ -191,11 +263,15 @@ export function formatNumbered(files) {
       }
     }
   }
-  return out.join('\n') + '\n';
+  return `${out.join('\n')}\n`;
 }
 
 // A permission change worth showing next to the content change: an edited file
 // that also became executable, or a new script created executable. null otherwise.
+/**
+ * @param {DiffFile} f
+ * @returns {string | null}
+ */
 export function modeNote(f) {
   if (f.oldMode && f.newMode) return `mode ${f.oldMode} → ${f.newMode}`;
   if (f.status === 'added' && f.newMode && f.newMode !== '100644') return `mode ${f.newMode}`;
@@ -205,6 +281,10 @@ export function modeNote(f) {
 // Why a file has no hunks to show: 'binary', 'mode' (mode-only change),
 // 'rename' (pure rename), 'empty' (an empty file added or deleted, or a pure
 // copy under diff.renames=copies); null when it has hunks to show.
+/**
+ * @param {DiffFile} f
+ * @returns {'binary' | 'mode' | 'rename' | 'empty' | null}
+ */
 export function headerOnlyKind(f) {
   if (f.binary) return 'binary';
   if (f.hunks.length > 0) return null;
@@ -214,6 +294,10 @@ export function headerOnlyKind(f) {
 }
 
 // The kind as one line of text for the numbered dump; null when the file has hunks.
+/**
+ * @param {DiffFile} f
+ * @returns {string | null}
+ */
 export function headerOnlyReason(f) {
   switch (headerOnlyKind(f)) {
     case 'binary': return 'binary';

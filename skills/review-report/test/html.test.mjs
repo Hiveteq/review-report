@@ -1,3 +1,4 @@
+// @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -6,7 +7,6 @@ import { buildReport } from '../lib/story.mjs';
 import { renderHtml } from '../lib/html.mjs';
 import { CDN } from '../lib/cdn.mjs';
 
-const OV = { bigPicture: 'a\n```mermaid\nflowchart LR\nA-->B\n```', why: 'b', approach: 'c', howToRead: 'd' };
 const fixtureText = readFileSync(new URL('./fixture.diff', import.meta.url), 'utf8');
 const files = parseDiff(fixtureText);
 const story = JSON.parse(readFileSync(new URL('./fixture.story.json', import.meta.url), 'utf8'));
@@ -37,7 +37,7 @@ test('renders overview and how-to-test; diagram sits inside the big picture, no 
 test('chapter diff rows carry old and new numbers and language class', () => {
   assert.match(html, /<tr class="line del" data-old="4" data-new="">/);
   assert.match(html, /<tr class="line add" data-old="" data-new="4">/);
-  assert.match(html, /<code class="language-java">    public String greet\(Name name\) \{<\/code>/);
+  assert.match(html, /<code class="language-java"> {4}public String greet\(Name name\) \{<\/code>/);
 });
 
 test('comment rows follow their anchor line on the right side', () => {
@@ -108,7 +108,7 @@ test('header-only files render in the appendix with a reason and a real file-ind
 });
 
 test('an empty added file is labelled as such, not as a rename', () => {
-  const extra = parseDiff(fixtureText + 'diff --git a/pkg/__init__.py b/pkg/__init__.py\nnew file mode 100644\nindex 0000000..e69de29\n');
+  const extra = parseDiff(`${fixtureText}diff --git a/pkg/__init__.py b/pkg/__init__.py\nnew file mode 100644\nindex 0000000..e69de29\n`);
   const out = renderHtml(story, buildReport(story, extra), extra, assets);
   assert.match(out, /data-path="pkg\/__init__\.py"[\s\S]*?<span class="status added">added<\/span>[\s\S]*?<p class="muted">Empty file added\.<\/p>/);
   assert.ok(!/data-path="pkg\/__init__\.py"[\s\S]{0,600}Renamed/.test(out));
@@ -213,9 +213,10 @@ test('every page carries a stable report id and each file block a content hash, 
   const pages = renderPages(story, buildReport(story, files), files, assets, { paged: true });
   const ids = pages.map((p) => /<html [^>]*data-report-id="([a-z0-9-]+)"/.exec(p.html)?.[1]);
   assert.ok(ids.every((id) => id && id === ids[0]), `one id on every page: ${ids}`);
-  assert.match(ids[0], /^greeter-takes-a-name-value-object-[0-9a-f]{8}$/);
+  assert.match(/** @type {string} */ (ids[0]), /^greeter-takes-a-name-value-object-[0-9a-f]{8}$/); // the check above found an id
   const other = { ...story, meta: { ...story.meta, title: 'Other title' } };
-  const otherId = /data-report-id="([a-z0-9-]+)"/.exec(renderHtml(other, buildReport(other, files), files, assets))[1];
+  // Cannot be null: every rendered page carries a report id.
+  const otherId = /** @type {RegExpExecArray} */ (/data-report-id="([a-z0-9-]+)"/.exec(renderHtml(other, buildReport(other, files), files, assets)))[1];
   assert.notEqual(otherId, ids[0]);
   assert.match(html, /<section class="file" id="file-1-c" data-path="src\/Greeter\.java" data-hash="[0-9a-f]{8}">/);
 });

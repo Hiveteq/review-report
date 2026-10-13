@@ -1,3 +1,4 @@
+// @ts-check
 // Browser tests for the report page script, in the three engines a reviewer might use.
 // Reports are opened from file:// URLs, as a reviewer opens them; globalSetup renders them first.
 import { defineConfig, devices } from '@playwright/test';

@@ -1,3 +1,4 @@
+// @ts-check
 // Regenerates the README screenshots from the demo fixture (the Greeter change in test/), never from a real
 // project. Needs Playwright's Chromium: `npm ci && npx playwright install chromium`.
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -6,6 +7,9 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from '@playwright/test';
+
+// The page.waitForFunction and page.evaluate callbacks below run in the browser, not in Node.
+/* global document, window */
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const skill = join(root, 'skills', 'review-report');
@@ -40,7 +44,8 @@ await page.reload();
 await settle();
 await page.locator('section.file[data-path="src/Name.java"] .viewed-toggle').check();
 await page.locator('#chapter-2').scrollIntoViewIfNeeded();
-await page.evaluate(() => window.scrollTo(0, document.getElementById('chapter-1').offsetTop - 20));
+// The fixture report always has a first chapter, so getElementById finds it.
+await page.evaluate(() => window.scrollTo(0, /** @type {HTMLElement} */ (document.getElementById('chapter-1')).offsetTop - 20));
 await page.screenshot({ path: join(shots, 'report-dark-split.png') });
 
 await browser.close();

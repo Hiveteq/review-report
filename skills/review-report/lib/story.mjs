@@ -1,13 +1,122 @@
+// @ts-check
 // Story contract: validation plus the join between story and parsed diff.
 // Pure functions. Errors are collected, never thrown, so the CLI can print all of them.
 
+/** @typedef {import('./diff.mjs').DiffFile} DiffFile */
+/** @typedef {import('./diff.mjs').DiffLine} DiffLine */
+/** @typedef {import('./diff.mjs').Hunk} Hunk */
+
+// The story as the agent writes it. These types describe a story that validateStory accepted;
+// reference/story-schema.md is the contract in prose.
+
+/**
+ * A note on one line of a hunk, as the story writes it.
+ * @typedef {object} Comment
+ * @property {number} line
+ * @property {'old' | 'new'} [side] which side's numbering `line` uses; 'new' when left out
+ * @property {string} text Markdown
+ */
+
+/**
+ * A chapter's pick of one file's hunks.
+ * @typedef {object} HunkRef
+ * @property {string} file
+ * @property {'all' | [number, number]} lines a new-side range, inclusive; [start, end] whenever slice is set
+ * @property {boolean} [slice] show only `lines` of each hunk instead of the whole hunk
+ * @property {string} [covers] for a test file: what it pins and what it leaves untested
+ * @property {Comment[]} [comments]
+ */
+
+/**
+ * A chapter has exactly one of hunks and html.
+ * @typedef {{ title: string, intro: string, hunks: HunkRef[], html?: undefined }
+ *   | { title: string, intro: string, html: string, hunks?: undefined }} Chapter
+ */
+
+/**
+ * @typedef {object} ReaderPass
+ * @property {number} rounds
+ * @property {number} questionsAnswered
+ * @property {number} openQuestions
+ */
+
+/**
+ * @typedef {object} StoryMeta
+ * @property {string} title
+ * @property {string} [target] how the diff was chosen; render.mjs fills it in when left out
+ * @property {string} [base]
+ * @property {string} [head]
+ * @property {ReaderPass} [readerPass] absent until the reader pass has run
+ */
+
+/** @typedef {'bigPicture' | 'why' | 'approach' | 'howToRead'} OverviewPart */
+
+/**
+ * @typedef {object} Story
+ * @property {StoryMeta} meta
+ * @property {Record<OverviewPart, string>} overview Markdown, one entry per part
+ * @property {string} [howToTest]
+ * @property {{ term: string, meaning: string }[]} [glossary]
+ * @property {string[]} [tests] globs naming the project's test files
+ * @property {{ glob: string, reason: string }[]} [exclude] files left out of the coverage count, with a reason
+ * @property {Chapter[]} chapters
+ */
+
+// What buildReport makes of a story and a parsed diff.
+
+/**
+ * A story comment after the join: its side is always set.
+ * @typedef {object} PlacedComment
+ * @property {number} line
+ * @property {'old' | 'new'} side
+ * @property {string} text
+ */
+
+/**
+ * One file's hunks as a chapter shows them.
+ * @typedef {object} Selection
+ * @property {DiffFile} file
+ * @property {Hunk[]} hunks whole hunks, or the slices of them the story asked for
+ * @property {PlacedComment[]} comments
+ * @property {string | null} covers
+ * @property {string} at where the hunk ref sits in the story, such as chapters[0].hunks[1]
+ */
+
+/** @typedef {{ kind: 'diff', title: string, intro: string, hunks: Selection[] }} DiffChapter */
+/** @typedef {{ kind: 'html', title: string, intro: string, html: string }} HtmlChapter */
+/** @typedef {DiffChapter | HtmlChapter} ReportChapter */
+
+/**
+ * The hunks no chapter showed, per file. A file with no hunks at all (binary, mode-only) is listed too.
+ * @typedef {object} AppendixEntry
+ * @property {DiffFile} file
+ * @property {Hunk[]} hunks
+ */
+
+/**
+ * @typedef {object} Report
+ * @property {ReportChapter[]} chapters
+ * @property {AppendixEntry[]} appendix
+ * @property {string[]} errors problems that stop the render
+ * @property {string[]} warnings likely mistakes, printed but not fatal
+ */
+
+/**
+ * @param {unknown} v
+ * @returns {v is string}
+ */
 const nonEmpty = (v) => typeof v === 'string' && v.trim().length > 0;
 
 // The overview is the big picture. Each part is Markdown and each is required.
 export const OVERVIEW_PARTS = ['bigPicture', 'why', 'approach', 'howToRead'];
 const MERMAID_FENCE = /^```mermaid\s*$/m;
 
+/**
+ * @param {any} story parsed JSON of any shape; checking that shape is this function's job
+ * @returns {string[]} every problem found, each with its path in the story; empty when valid
+ */
 export function validateStory(story) {
+  /** @type {string[]} */
   const errors = [];
   if (!nonEmpty(story?.meta?.title)) errors.push('meta.title is required');
   const np = story?.meta?.readerPass;
@@ -32,7 +141,7 @@ export function validateStory(story) {
   if (story?.howToTest !== undefined && typeof story.howToTest !== 'string') errors.push('howToTest must be a string');
 
   if (story?.glossary !== undefined && !Array.isArray(story.glossary)) errors.push('glossary must be an array of { term, meaning }');
-  (Array.isArray(story?.glossary) ? story.glossary : []).forEach((g, i) => {
+  asArray(story?.glossary).forEach((g, i) => {
     if (!nonEmpty(g?.term)) errors.push(`glossary[${i}].term is required`);
     if (!nonEmpty(g?.meaning)) errors.push(`glossary[${i}].meaning is required`);
   });
@@ -42,9 +151,9 @@ export function validateStory(story) {
   if (story?.diagrams !== undefined) errors.push('diagrams is no longer a story field: put ```mermaid fences inside overview parts or chapter intros');
 
   // Which files are tests is the story's call: the writer knows the project's stack, the tool does not.
-  if (story?.tests !== undefined && (!Array.isArray(story.tests) || !story.tests.every((g) => typeof g === 'string'))) errors.push('tests must be an array of globs for this project\'s test files');
+  if (story?.tests !== undefined && (!Array.isArray(story.tests) || !story.tests.every((/** @type {unknown} */ g) => typeof g === 'string'))) errors.push('tests must be an array of globs for this project\'s test files');
   if (story?.exclude !== undefined && !Array.isArray(story.exclude)) errors.push('exclude must be an array of { glob, reason }');
-  (Array.isArray(story?.exclude) ? story.exclude : []).forEach((e, i) => {
+  asArray(story?.exclude).forEach((e, i) => {
     if (e === null || typeof e !== 'object') { errors.push(`exclude[${i}] must be { glob, reason }`); return; }
     if (!nonEmpty(e.glob)) errors.push(`exclude[${i}].glob is required`);
     if (!nonEmpty(e.reason)) errors.push(`exclude[${i}].reason is required`);
@@ -54,7 +163,8 @@ export function validateStory(story) {
     errors.push('chapters must be a non-empty array');
     return errors;
   }
-  story.chapters.forEach((ch, i) => {
+  // story is unchecked JSON, so the callback parameters get their types here.
+  story.chapters.forEach((/** @type {any} */ ch, /** @type {number} */ i) => {
     const at = `chapters[${i}]`;
     if (!nonEmpty(ch?.title)) errors.push(`${at}.title is required`);
     if (!nonEmpty(ch?.intro)) errors.push(`${at}.intro is required`);
@@ -81,6 +191,10 @@ export function validateStory(story) {
   return errors;
 }
 
+/**
+ * @param {any} v a value from the unchecked story
+ * @returns {any[]}
+ */
 const asArray = (v) => (Array.isArray(v) ? v : []);
 
 // Sentence count for the two-sentence rule. Intl.Segmenter knows the sentence
@@ -90,6 +204,10 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
 // A Node built without ICU sentence data falls back to the ASCII heuristic.
 const sentences = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'sentence' }) : null;
 
+/**
+ * @param {string} text
+ * @returns {number}
+ */
 function sentenceCount(text) {
   const flat = text.replace(/\s+/g, ' ').trim();
   if (!sentences) return (flat.match(/[.!?](\s|$)/g) ?? []).length;
@@ -98,18 +216,32 @@ function sentenceCount(text) {
   return count;
 }
 
+/**
+ * @param {unknown} lines
+ * @returns {boolean}
+ */
 function validLines(lines) {
   if (lines === 'all') return true;
   return Array.isArray(lines) && lines.length === 2 && lines.every(Number.isInteger) && lines[0] <= lines[1];
 }
 
+/**
+ * @param {Story} story a story validateStory accepted
+ * @param {DiffFile[]} files
+ * @returns {Report}
+ */
 export function buildReport(story, files) {
+  /** @type {string[]} */
   const errors = [];
+  /** @type {string[]} */
   const warnings = [];
+  /** @type {Set<DiffLine>} */
   const shownLines = new Set(); // every diff line object some chapter showed
+  /** @type {Set<Hunk>} */
   const touched = new Set();    // every original hunk some chapter showed any part of
   const byPath = new Map(files.map((f) => [f.path, f]));
 
+  /** @type {ReportChapter[]} */
   const chapters = story.chapters.map((ch, i) => {
     if (typeof ch.html === 'string') return { kind: 'html', title: ch.title, intro: ch.intro, html: ch.html };
     const hunks = ch.hunks.map((ref, j) => {
@@ -129,10 +261,13 @@ export function buildReport(story, files) {
       }
       // A slice shows only the given new-side range of each hunk, so one new file can be
       // spread over the chapters that explain its parts. Without slice the whole hunk shows.
-      const shown = ref.slice ? picked.map(({ h }) => sliceHunk(h, ref.lines[0], ref.lines[1])).filter((h) => h.lines.length) : picked.map(({ h }) => h);
+      // Read only when slice is true, and validateStory requires lines as [start, end] whenever slice is true.
+      const sliceRange = /** @type {[number, number]} */ (ref.lines);
+      const shown = ref.slice ? picked.map(({ h }) => sliceHunk(h, sliceRange[0], sliceRange[1])).filter((h) => h.lines.length) : picked.map(({ h }) => h);
       picked.forEach(({ h }) => touched.add(h));
       shown.forEach((h) => h.lines.forEach((l) => shownLines.add(l)));
       const lines = shown.flatMap((h) => h.lines);
+      /** @type {PlacedComment[]} */
       const comments = (ref.comments ?? []).map((c) => ({ line: c.line, side: c.side ?? 'new', text: c.text }));
       comments.forEach((c, k) => {
         const present = lines.some((l) => (c.side === 'new' ? l.new : l.old) === c.line);
@@ -141,7 +276,7 @@ export function buildReport(story, files) {
         if (drift) warnings.push(`${at}.comments[${k}]: ${ref.file} ${c.side} line ${c.line} does not contain ${drift.names}; ${c.side} line ${drift.line} does. Move the note if it is about that line.`);
       });
       return { file, hunks: shown, comments, covers: typeof ref.covers === 'string' ? ref.covers : null, at };
-    }).filter(Boolean);
+    }).filter((sel) => sel !== null);
     return { kind: 'diff', title: ch.title, intro: ch.intro, hunks };
   });
 
@@ -163,7 +298,12 @@ export function buildReport(story, files) {
 // Names a note puts in backticks, as plain identifier-like tokens: `value()` gives value,
 // `"Hello "` gives Hello. Markdown backticks are the only convention used, so this
 // works for any language.
+/**
+ * @param {string} text
+ * @returns {string[]}
+ */
 function namesIn(text) {
+  /** @type {string[]} */
   const out = [];
   for (const [, span] of String(text).matchAll(/`([^`]+)`/g)) {
     for (const t of span.match(/[A-Za-z_][A-Za-z0-9_]{2,}/g) ?? []) if (!out.includes(t)) out.push(t);
@@ -173,23 +313,36 @@ function namesIn(text) {
 
 // A note whose named code is missing from its own line but present one or two lines
 // away was most likely anchored off by one. Returns the nearest such line, or null.
+/**
+ * @param {PlacedComment} comment
+ * @param {DiffLine[]} lines
+ * @returns {{ line: number, names: string } | null} names: the backticked names found there, joined for a message
+ */
 function anchorDrift(comment, lines) {
   const names = namesIn(comment.text);
   if (!names.length) return null;
+  /** @param {DiffLine} l */
   const num = (l) => (comment.side === 'new' ? l.new : l.old);
+  /** @param {number} n */
   const at = (n) => lines.find((l) => num(l) === n);
   const anchor = at(comment.line);
   if (!anchor || names.some((t) => anchor.content.includes(t))) return null;
   for (const d of [1, -1, 2, -2]) {
     const near = at(comment.line + d);
     const hits = near ? names.filter((t) => near.content.includes(t)) : [];
-    if (hits.length) return { line: comment.line + d, names: hits.map((t) => '`' + t + '`').join(', ') };
+    if (hits.length) return { line: comment.line + d, names: hits.map((t) => `\`${t}\``).join(', ') };
   }
   return null;
 }
 
 // The part of a hunk that belongs to new-side lines start..end. A deleted line has no
 // new number; it belongs where it sits, after the last new-side line before it.
+/**
+ * @param {Hunk} hunk
+ * @param {number} start
+ * @param {number} end
+ * @returns {Hunk}
+ */
 function sliceHunk(hunk, start, end) {
   let lastNew = hunk.newStart - 1;
   const lines = hunk.lines.filter((l) => {
@@ -200,6 +353,11 @@ function sliceHunk(hunk, start, end) {
 }
 
 // A hunk made of some of another hunk's lines, numbered from its first line.
+/**
+ * @param {Hunk} hunk
+ * @param {DiffLine[]} lines
+ * @returns {Hunk}
+ */
 function subHunk(hunk, lines) {
   const firstOld = lines.find((l) => l.old !== null);
   const firstNew = lines.find((l) => l.new !== null);
@@ -214,6 +372,12 @@ function subHunk(hunk, lines) {
 
 // New-side overlap. A hunk that only deletes (no context) has no new-side
 // numbers; git's newStart then points at the line before the deletion.
+/**
+ * @param {Hunk} hunk
+ * @param {number} start
+ * @param {number} end
+ * @returns {boolean}
+ */
 function overlaps(hunk, start, end) {
   const news = hunk.lines.map((l) => l.new).filter((n) => n !== null);
   if (news.length === 0) return hunk.newStart >= start - 1 && hunk.newStart <= end;

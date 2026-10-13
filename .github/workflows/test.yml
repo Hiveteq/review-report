@@ -48,3 +48,15 @@ jobs:
           name: playwright-report
           path: playwright-report/
           retention-days: 14
+  # Style and types: ESLint and tsc --noEmit over every JavaScript file. Dev-only tools; the skill itself
+  # still runs with a bare node.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck

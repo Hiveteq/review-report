@@ -1,7 +1,12 @@
+// @ts-check
 // Notes opened from the code: hovering the text of an annotated line shows its notes in a row under it.
 import { test, expect, reportUrl } from './reports.mjs';
 
+/** @typedef {import('@playwright/test').Page} Page */
+/** @typedef {import('./reports.mjs').Box} Box */
+
 // The Greeter line `public String greet(Name name)` carries a note in the demo fixture.
+/** @param {Page} page */
 function annotatedLine(page) {
   return page.locator('section.file[data-path="src/Greeter.java"] tr.annotated')
     .filter({ hasText: 'public String greet(Name name)' });
@@ -20,8 +25,8 @@ test('hovering the code text opens its note under the line, pushing the next lin
   await expect(hint).toBeVisible();
   await expect(hint).toContainText('Signature changes from String to Name');
   const next = line.locator('xpath=following-sibling::tr[contains(@class, "line")][1]');
-  const hintBox = await hint.boundingBox();
-  expect((await next.boundingBox()).y).toBeGreaterThanOrEqual(hintBox.y + hintBox.height - 1);
+  const hintBox = /** @type {Box} */ (await hint.boundingBox());
+  expect(/** @type {Box} */ (await next.boundingBox()).y).toBeGreaterThanOrEqual(hintBox.y + hintBox.height - 1);
 });
 
 test('moving the pointer to the line numbers closes the note', async ({ page }) => {

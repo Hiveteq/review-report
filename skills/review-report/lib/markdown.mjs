@@ -1,17 +1,28 @@
+// @ts-check
 // Minimal Markdown → HTML for story prose. Deliberately small: the story is
 // written by Claude, so it only needs the constructs listed in the test file.
 // Everything is escaped first; no raw HTML passes through.
 
+/** @type {Record<string, string>} */
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 
+/**
+ * @param {unknown} s any value; it is converted to text first
+ * @returns {string}
+ */
 export function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ESC[c]);
 }
 
 const BLOCK_START = /^(```|#{1,4} |[-*] |\d+\. )/;
 
+/**
+ * @param {string} src
+ * @returns {string}
+ */
 export function renderMarkdown(src) {
   const lines = String(src).replace(/\r\n/g, '\n').split('\n');
+  /** @type {string[]} */
   const out = [];
   let i = 0;
   while (i < lines.length) {
@@ -19,6 +30,7 @@ export function renderMarkdown(src) {
 
     if (line.startsWith('```')) {
       const lang = line.slice(3).trim() || 'plaintext';
+      /** @type {string[]} */
       const buf = [];
       i++;
       while (i < lines.length && !lines[i].startsWith('```')) buf.push(lines[i++]);
@@ -40,6 +52,7 @@ export function renderMarkdown(src) {
     }
 
     if (/^[-*] /.test(line)) {
+      /** @type {string[]} */
       const items = [];
       while (i < lines.length && /^[-*] /.test(lines[i])) items.push(`<li>${inline(lines[i++].slice(2))}</li>`);
       out.push(`<ul>${items.join('')}</ul>`);
@@ -49,7 +62,9 @@ export function renderMarkdown(src) {
     if (/^\d+\. /.test(line)) {
       // A list interrupted by a code block continues as a new <ol>; keeping the
       // source number as `start` stops it from renumbering from 1.
-      const start = Number(/^(\d+)\. /.exec(line)[1]);
+      // Cannot be null: the test above matched the same pattern.
+      const start = Number(/** @type {RegExpExecArray} */ (/^(\d+)\. /.exec(line))[1]);
+      /** @type {string[]} */
       const items = [];
       while (i < lines.length && /^\d+\. /.test(lines[i])) items.push(`<li>${inline(lines[i++].replace(/^\d+\. /, ''))}</li>`);
       out.push(`<ol${start === 1 ? '' : ` start="${start}"`}>${items.join('')}</ol>`);
@@ -61,6 +76,7 @@ export function renderMarkdown(src) {
       continue;
     }
 
+    /** @type {string[]} */
     const buf = [];
     while (i < lines.length && lines[i].trim() !== '' && !BLOCK_START.test(lines[i])) buf.push(lines[i++]);
     out.push(`<p>${inline(buf.join(' '))}</p>`);
@@ -73,6 +89,10 @@ export function renderMarkdown(src) {
 // control characters and whitespace are dropped and the scheme is case-folded,
 // so "\u0001javascript:" or "JAVASCRIPT:" is still seen as javascript: and left
 // as text. Relative paths and #anchors resolve against the placeholder base.
+/**
+ * @param {string} url
+ * @returns {boolean}
+ */
 function safeUrl(url) {
   let parsed;
   try { parsed = new URL(url, 'https://example.invalid/'); } catch { return false; }
@@ -81,7 +101,12 @@ function safeUrl(url) {
 
 // Inline marks. Code spans are lifted out first so their contents are never
 // touched by the bold/italic/link passes, then spliced back in.
+/**
+ * @param {string} text
+ * @returns {string}
+ */
 function inline(text) {
+  /** @type {string[]} */
   const codes = [];
   let s = text.replace(/`([^`]+)`/g, (_, c) => {
     codes.push(`<code>${escapeHtml(c)}</code>`);
@@ -91,5 +116,6 @@ function inline(text) {
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/(^|[\s(])[_*]([^_*\s](?:[^_*]*?[^_*\s])?)[_*](?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')
     .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (all, text, url) => (safeUrl(url) ? `<a href="${url}">${text}</a>` : all));
+  // eslint-disable-next-line no-control-regex -- NUL brackets the code-span placeholders set above, on purpose.
   return s.replace(/\u0000(\d+)\u0000/g, (_, n) => codes[Number(n)]);
 }

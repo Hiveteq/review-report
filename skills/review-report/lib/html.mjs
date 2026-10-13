@@ -1,15 +1,39 @@
+// @ts-check
 // Assembles the report page. Pure: takes story + built report + parsed files
 // + asset strings, returns HTML. DOM class/id names here are a contract with
 // template/report.js and template/report.css; change them together.
 import { createHash } from 'node:crypto';
 import { CDN, pin } from './cdn.mjs';
 import { escapeHtml as esc, renderMarkdown as md } from './markdown.mjs';
-import { computeCoverage, describeExcluded } from './coverage.mjs';
+import { computeCoverage } from './coverage.mjs';
 import { headerOnlyKind, hunkLabel, modeNote } from './diff.mjs';
 
+/** @typedef {import('./diff.mjs').DiffFile} DiffFile */
+/** @typedef {import('./diff.mjs').Hunk} Hunk */
+/** @typedef {import('./story.mjs').Story} Story */
+/** @typedef {import('./story.mjs').Report} Report */
+/** @typedef {import('./story.mjs').ReportChapter} ReportChapter */
+/** @typedef {import('./story.mjs').PlacedComment} PlacedComment */
+
+/**
+ * The page script and stylesheet, inlined into every page.
+ * @typedef {object} Assets
+ * @property {string} css
+ * @property {string} js
+ */
+
+/**
+ * One HTML file of the report. path is relative to the report folder.
+ * @typedef {object} Page
+ * @property {string} path
+ * @property {string} html
+ */
+
+/** @typedef {{ href: string, title: string }} PageLink */
 
 // Extension → highlight.js language name. Names the CDN bundle does not ship are
 // skipped by the page script, so listing one is never worse than plaintext.
+/** @type {Record<string, string>} */
 const LANG_BY_EXT = {
   java: 'java', kt: 'kotlin', kts: 'kotlin', php: 'php', js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript',
   ts: 'typescript', mts: 'typescript', cts: 'typescript', tsx: 'typescript', json: 'json', css: 'css', scss: 'scss', less: 'less',
@@ -21,6 +45,13 @@ const LANG_BY_EXT = {
 };
 
 // Single page: the whole report in one file.
+/**
+ * @param {Story} story
+ * @param {Report} report
+ * @param {DiffFile[]} files
+ * @param {Assets} assets
+ * @returns {string}
+ */
 export function renderHtml(story, report, files, assets) {
   return renderPages(story, report, files, assets, { paged: false })[0].html;
 }
@@ -29,27 +60,42 @@ export function renderHtml(story, report, files, assets) {
 // index (overview, key terms, how to test, chapter list) plus one page per chapter and
 // one for "Other changes", so a large report stays one story with one reading order
 // while each page stays small enough to load and lay out quickly.
+/**
+ * @param {Story} story
+ * @param {Report} report
+ * @param {DiffFile[]} files
+ * @param {Assets} assets
+ * @param {{ paged: boolean }} options
+ * @returns {Page[]}
+ */
 export function renderPages(story, report, files, assets, { paged }) {
   const fileIds = new Map(files.map((f, i) => [f, `file-${i + 1}`]));
   // Viewed state is stored per report. The id ties it to this title and this exact diff, so two reports
   // open side by side, or two renders of the same branch at different commits, never share ticks.
-  const fileHashes = new Map(files.map((f) => [f, hashOf(f.path + '\n' + f.hunks.map((h) => h.lines.map((l) => l.type + l.content).join('\n')).join('\n'))]));
-  const reportId = `${slugOf(story.meta.title)}-${hashOf(story.meta.title + '\n' + files.map((f) => fileHashes.get(f)).join(','))}`;
+  const fileHashes = new Map(files.map((f) => [f, hashOf(`${f.path}\n${f.hunks.map((h) => h.lines.map((l) => `${l.type}${l.content}`).join('\n')).join('\n')}`)]));
+  const reportId = `${slugOf(story.meta.title)}-${hashOf(`${story.meta.title}\n${files.map((f) => fileHashes.get(f)).join(',')}`)}`;
   const viewableTotal = files.filter((f) => !excludedFiles(story, files, report).has(f.path)).length;
   const title = esc(story.meta.title);
   const target = story.meta.target ? esc(story.meta.target) : '';
   const coverage = coverageParts(story, files, report);
+  /** @param {number} i */
   const chapterPage = (i) => `chapter-${String(i + 1).padStart(2, '0')}.html`;
   const appendixPage = 'other-changes.html';
 
   // Where each file's first block lives, for the sidebar file index.
+  /** @type {Map<DiffFile, string>} */
   const firstPageOf = new Map();
   report.chapters.forEach((ch, i) => {
     if (ch.kind !== 'diff') return;
     for (const sel of ch.hunks) if (!firstPageOf.has(sel.file)) firstPageOf.set(sel.file, paged ? chapterPage(i) : '');
   });
   for (const e of report.appendix) if (!firstPageOf.has(e.file)) firstPageOf.set(e.file, paged ? appendixPage : '');
+  /** @type {Set<DiffFile>} */
   const anchored = new Set();
+  /**
+   * @param {DiffFile} file
+   * @returns {string | null}
+   */
   const anchorFor = (file) => {
     if (anchored.has(file)) return null;
     anchored.add(file);
@@ -70,6 +116,7 @@ export function renderPages(story, report, files, assets, { paged }) {
     : '';
 
   const indexHref = paged ? 'index.html' : '';
+  /** @param {string | null} current */
   const tocEntries = (current) => [
     `<li><a href="${indexHref}#overview">Overview</a></li>`,
     story.glossary?.length ? `<li><a href="${indexHref}#key-terms">New terms</a></li>` : '',
@@ -85,6 +132,7 @@ export function renderPages(story, report, files, assets, { paged }) {
   ].filter(Boolean).join('\n    ');
   const fileIndexAll = files.map((f) => fileIndexItem(f, `${firstPageOf.get(f) ?? ''}#${fileIds.get(f)}-c`)).join('');
   // Paged: the sidebar leads with the files on this page; the full list is one click away.
+  /** @param {string} path */
   const sidebarFiles = (path) => {
     const progress = `<div class="viewed-progress"><span class="viewed-count" data-total="${viewableTotal}">0 of ${viewableTotal} viewed</span><div class="rail"><div class="fill"></div></div></div>`;
     if (!paged || path === 'index.html') return `<h3>Files</h3>
@@ -97,6 +145,11 @@ export function renderPages(story, report, files, assets, { paged }) {
   <details class="all-files"><summary>All files (${files.length})</summary><nav class="file-index"><ul>${fileIndexAll}</ul></nav></details>`;
   };
 
+  /**
+   * @param {{ path: string, pageTitle: string, body: string, current: string | null, prev?: PageLink | null,
+   *   next?: PageLink | null }} parts
+   * @returns {Page}
+   */
   const page = ({ path, pageTitle, body, current, prev, next }) => {
     const nav = paged && (prev || next)
       ? `<nav class="pager">${prev ? `<a class="prev" href="${prev.href}">← ${esc(prev.title)}</a>` : '<span></span>'}${next ? `<a class="next" href="${next.href}">${esc(next.title)} →</a>` : '<span></span>'}</nav>`
@@ -179,17 +232,32 @@ ${mermaidScript}<script>${assets.js}</script>
 }
 
 // Glossary meanings are one paragraph; unwrap the <p> the converter adds.
+/**
+ * @param {string} text
+ * @returns {string}
+ */
 function inlineMd(text) {
   return md(text).replace(/^<p>([\s\S]*)<\/p>$/, '$1');
 }
 
 const OVERVIEW_HEADINGS = { bigPicture: 'Where this change sits', why: 'Why this change', approach: 'What changes', howToRead: 'How to read this report' };
 
+/**
+ * @param {Record<string, string>} ov
+ * @returns {string}
+ */
 function overview(ov) {
   return Object.entries(OVERVIEW_HEADINGS).map(([key, heading]) => `<h3>${heading}</h3>\n${md(ov[key])}`).join('\n');
 }
 
 
+/**
+ * @param {ReportChapter} ch
+ * @param {number} i
+ * @param {(file: DiffFile) => string | null} anchorFor
+ * @param {Map<DiffFile, string>} fileHashes
+ * @returns {string}
+ */
 function chapter(ch, i, anchorFor, fileHashes) {
   const id = `chapter-${i + 1}`;
   const body = ch.kind === 'html'
@@ -200,6 +268,11 @@ function chapter(ch, i, anchorFor, fileHashes) {
   return `${head}<div class="intro">${md(ch.intro)}</div>${body}</section>`;
 }
 
+/**
+ * @param {DiffFile} f
+ * @param {string} href
+ * @returns {string}
+ */
 function fileIndexItem(f, href) {
   const adds = f.hunks.flatMap((h) => h.lines).filter((l) => l.type === 'add').length;
   const dels = f.hunks.flatMap((h) => h.lines).filter((l) => l.type === 'del').length;
@@ -208,6 +281,16 @@ function fileIndexItem(f, href) {
 }
 
 // anchorId is set only on the first block rendered for a file (see renderHtml).
+/**
+ * @param {DiffFile} file
+ * @param {Hunk[]} hunks
+ * @param {PlacedComment[]} comments
+ * @param {string | null} anchorId
+ * @param {string | undefined} excludedReason set when the coverage count leaves the file out
+ * @param {string | undefined} hash
+ * @param {string | null} [covers]
+ * @returns {string}
+ */
 function fileBlock(file, hunks, comments, anchorId, excludedReason, hash, covers) {
   const lang = languageFor(file.path);
   const name = file.status === 'renamed' ? `${esc(file.oldPath)} → ${esc(file.newPath)}` : esc(file.path);
@@ -232,6 +315,11 @@ function fileBlock(file, hunks, comments, anchorId, excludedReason, hash, covers
 }
 
 // Sentence shown instead of a diff table for a file that has no hunks.
+/**
+ * @param {DiffFile} file
+ * @param {ReturnType<typeof headerOnlyKind>} kind
+ * @returns {string}
+ */
 function headerOnlyText(file, kind) {
   if (kind === 'binary') return 'Binary file, no textual diff.';
   if (kind === 'mode') return `Mode changed ${esc(file.oldMode)} → ${esc(file.newMode)}, no content change.`;
@@ -241,6 +329,12 @@ function headerOnlyText(file, kind) {
   return 'No content change.';
 }
 
+/**
+ * @param {Hunk} hunk
+ * @param {PlacedComment[]} comments
+ * @param {string} lang
+ * @returns {string}
+ */
 function hunkTable(hunk, comments, lang) {
   const rows = [`<tr class="hunk-header"><td colspan="3">${esc(hunkLabel(hunk))}</td></tr>`];
   for (const line of hunk.lines) {
@@ -253,21 +347,36 @@ function hunkTable(hunk, comments, lang) {
   return `<table class="diff unified"><colgroup><col class="num"><col class="num"><col class="code"></colgroup>${rows.join('')}</table>`;
 }
 
+/**
+ * @param {string} path
+ * @returns {string}
+ */
 function languageFor(path) {
-  const base = (path ?? '').split('/').pop().toLowerCase();
+  // split always returns at least one part, so neither pop below comes back undefined.
+  const base = /** @type {string} */ ((path ?? '').split('/').pop()).toLowerCase();
   if (base === 'dockerfile') return 'dockerfile';
   if (base === 'makefile') return 'makefile';
-  const ext = base.includes('.') ? base.split('.').pop() : '';
+  const ext = base.includes('.') ? /** @type {string} */ (base.split('.').pop()) : '';
   return LANG_BY_EXT[ext] ?? 'plaintext';
 }
 
 // Numbers the reviewer can trust: what share of the change the chapters show, and whether a
 // reader pass came back with no open questions. The exclusion list goes in a
 // collapsed block on the index page only.
+/**
+ * @param {Story} story
+ * @param {DiffFile[]} files
+ * @param {Report} report
+ * @returns {{ line: string, excluded: string, excludedReason: Map<string, string> }}
+ */
 function coverageParts(story, files, report) {
   const cov = computeCoverage(story, files, report);
   const pct = Math.round(cov.ratio * 100);
   const np = story.meta.readerPass;
+  /**
+   * @param {number} n
+   * @param {string} w
+   */
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
   const pass = np
     ? ` Reader pass: ${plural(np.rounds, 'round')}, ${plural(np.questionsAnswered, 'question')} answered, ${np.openQuestions === 0 ? 'none' : np.openQuestions} still open.`.replace(', none still open.', ', none open.')
@@ -280,20 +389,38 @@ function coverageParts(story, files, report) {
   return { line, excluded, excludedReason: new Map(cov.excluded.map((e) => [e.path, e.reason])) };
 }
 
+/**
+ * @param {string} text
+ * @returns {string}
+ */
 function hashOf(text) {
   return createHash('sha1').update(text).digest('hex').slice(0, 8);
 }
 
+/**
+ * @param {string} title
+ * @returns {string}
+ */
 function slugOf(title) {
   return title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 60) || 'report';
 }
 
 // Paths the reader is not expected to tick: files the coverage count leaves out.
+/**
+ * @param {Story} story
+ * @param {DiffFile[]} files
+ * @param {Report} report
+ * @returns {Set<string>}
+ */
 function excludedFiles(story, files, report) {
   return new Set(computeCoverage(story, files, report).excluded.map((e) => e.path));
 }
 
 // The paths a chapter shows, joined for a data-files attribute; empty for an html chapter.
+/**
+ * @param {ReportChapter} ch
+ * @returns {string}
+ */
 function chapterFileList(ch) {
   return ch.kind === 'diff' ? [...new Set(ch.hunks.map((s) => s.file.path))].map(esc).join('|') : '';
 }
