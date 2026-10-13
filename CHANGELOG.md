@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.2
+
+**Features**
+- A diagram shrunk by more than a tenth to fit its column gets a **Full size** button above it. It draws the
+  diagram at its natural width, and the box scrolls sideways; **Fit to width** goes back. The choice
+  survives a theme switch.
+
+**Docs**
+- The README now leads with what the walkthrough gives you, and states the requirements exactly.
+- Contributors: commit messages and pull-request titles follow `type(scope): summary`.
+
 ## 0.1.1
 
 **Fixes**
