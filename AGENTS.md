@@ -52,6 +52,8 @@ CI runs `npm test` on Linux, macOS and Windows. It also fails when the committed
   Never edit a pin by hand. `npm run update-cdn` moves both to their newest releases and recomputes the
   hashes from the files served. Then run `npm test`, `npm run e2e` and `npm run example`.
   A weekly workflow does the same and opens a pull request.
+- **Test hook.** `REVIEW_REPORT_WITHOUT=gh` (comma-separated) makes the script act as if those commands were not
+  installed. Tests use it to take fallback paths on machines that have the tools; users never need it.
 
 ## Browser tests
 
