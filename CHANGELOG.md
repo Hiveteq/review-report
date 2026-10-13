@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.1
+
+**Fixes**
+- Pages with several diagrams drew them into each other's boxes or left some empty. Diagrams now render one
+  at a time, and a theme switch mid-render no longer mixes old and new drawings.
+- In the dark theme, text on boxes marked new or changed was light on a light fill and hard to read. It now
+  stays dark.
+
+**Changes**
+- Mermaid 12.1.0 (from 11.17.2). Flowchart, state and entity diagrams draw right-angled edges.
+
 ## 0.1.0
 
 First public release.
