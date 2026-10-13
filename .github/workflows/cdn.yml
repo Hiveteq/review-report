@@ -46,12 +46,12 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git switch -C cdn-update
-          git commit -am "Update pinned CDN files" -m "$SUMMARY"
+          git commit -am "build(cdn): update pinned CDN files" -m "$SUMMARY"
           git push --force origin cdn-update
           body=$(printf '%s\n\n`npm test` and `npm run e2e`: **%s** in [this run](%s).\n' "$SUMMARY" "$RESULT" "$RUN_URL")
           if [ "$(gh pr list --head cdn-update --state open --json number --jq length)" = 0 ]; then
             draft=$([ "$RESULT" = passed ] || echo --draft)
-            gh pr create --head cdn-update --title 'Update pinned CDN files' --body "$body" $draft
+            gh pr create --head cdn-update --title 'build(cdn): update pinned CDN files' --body "$body" $draft
           else
             gh pr edit cdn-update --body "$body"
           fi

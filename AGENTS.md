@@ -84,9 +84,27 @@ A wording change to `SKILL.md` or `reference/` changes agent behaviour, so test 
    and the reader-pass questions from both runs.
 3. In the pull request, describe what changed in the reports. Do not attach private diffs or reports.
 
+## Commit messages and pull-request titles
+
+Pull requests are squash-merged, so the pull-request title becomes the commit on `main`. Both follow
+[Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/):
+
+    type(scope): summary
+
+- **type**: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore` or `revert`.
+- **scope** (optional): `renderer` (render.mjs, lib/), `page` (template/), `skill` (SKILL.md, reference/),
+  `e2e`, `cdn`, `deps`, `release`.
+- **summary**: imperative, lower case, no full stop, at most 72 characters. "fix(page): render diagrams one at a
+  time", not "Fixed diagrams."
+- **body** (optional): why the change was needed, wrapped at 72 characters. The diff already shows what changed.
+- A change to the story format that breaks existing stories adds `!` after the type and a
+  `BREAKING CHANGE:` footer saying what to update.
+- Releases: `chore(release): 0.1.2`.
+
 ## Pull requests
 
 - One problem per pull request.
+- Title it `type(scope): summary`, as above.
 - A human has read the whole diff before opening it.
 - Name the agent and model that wrote the change, if any.
 - Fill in the checklist in the pull request template.
