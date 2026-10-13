@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync } fr
 import { execFileSync } from 'node:child_process';
 import { join, dirname, resolve, relative, isAbsolute, sep } from 'node:path';
 import { parseDiff, formatNumbered } from './lib/diff.mjs';
-import { resolveDiff, describeTarget, repoRoot, prNumber } from './lib/git.mjs';
+import { resolveDiff, describeTarget, repoRoot, defaultRun, withoutTools, firstLine } from './lib/git.mjs';
 import { validateStory, buildReport } from './lib/story.mjs';
 import { renderPages } from './lib/html.mjs';
 import { computeCoverage, matchGlob } from './lib/coverage.mjs';
@@ -47,7 +47,6 @@ function parseArgs(argv) {
   if (!opts.dumpDiff && !opts.dumpNumbered && !opts.story) usage('--story is required');
   if (!Number.isInteger(opts.context) || opts.context < 0) usage('--context must be a non-negative integer');
   if (!(opts.minCoverage >= 0 && opts.minCoverage <= 100)) usage('--min-coverage must be 0..100');
-  if (opts.context !== 3 && prNumber(opts.target ?? '')) process.stderr.write('warning: --context is ignored for PR targets (gh pr diff has no context flag); use <base>...<head> for wider context\n');
   return opts;
 }
 
@@ -57,12 +56,17 @@ function usage(msg) {
 }
 
 function main(opts) {
+  // REVIEW_REPORT_WITHOUT=gh makes gh look absent; tests use it to take the git path.
+  const run = withoutTools(defaultRun, process.env.REVIEW_REPORT_WITHOUT);
+  const notes = [];
   let diffText;
   try {
-    diffText = opts.diffFile ? readFileSync(opts.diffFile, 'utf8') : resolveDiff(opts.target, opts.context);
+    diffText = opts.diffFile ? readFileSync(opts.diffFile, 'utf8') : resolveDiff(opts.target, opts.context, run, notes);
   } catch (e) {
+    printNotes(notes); // why gh was skipped explains the error that follows
     fail([opts.diffFile ? `cannot read diff file ${opts.diffFile}: ${e.message}` : `cannot resolve diff for target ${opts.target ?? '(default)'}: ${firstLine(e)}`]);
   }
+  printNotes(notes);
   if (opts.dumpDiff) {
     process.stdout.write(diffText);
     return;
@@ -85,7 +89,7 @@ function main(opts) {
   // for a PR target this is a network round-trip.
   if (!opts.diffFile && [story.meta.target, story.meta.base, story.meta.head].some((v) => v == null)) {
     let t;
-    try { t = describeTarget(opts.target); } catch (e) { fail([`cannot describe target: ${firstLine(e)}`]); }
+    try { t = describeTarget(opts.target, run); } catch (e) { fail([`cannot describe target: ${firstLine(e)}`]); }
     story.meta.target ??= t.label;
     story.meta.base ??= t.base;
     story.meta.head ??= t.head;
@@ -171,6 +175,11 @@ function onlyPart(files, globs) {
   return globs ? files.filter((f) => globs.some((g) => matchGlob(g, f.path))) : files;
 }
 
+// Notes go to stderr: stdout carries the diff for --dump-diff and --dump-numbered.
+function printNotes(notes) {
+  for (const n of notes) process.stderr.write(`note: ${n}\n`);
+}
+
 function fail(errors) {
   // Lines indented by two spaces continue the previous error (file lists); they carry no prefix.
   for (const e of errors) process.stderr.write(e.startsWith('  ') ? `${e}\n` : `error: ${e}\n`);
@@ -188,12 +197,6 @@ function gitIgnores(root, path) {
   } catch (e) {
     return e.status === 1 ? false : null;
   }
-}
-
-// git/gh failures carry their stderr in the message; keep the first meaningful line.
-function firstLine(e) {
-  const text = (e.stderr && String(e.stderr).trim()) || e.message || String(e);
-  return text.split('\n').filter(Boolean)[0] ?? 'unknown error';
 }
 
 function safeRepoRoot() {
