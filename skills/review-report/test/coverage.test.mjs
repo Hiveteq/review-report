@@ -1,3 +1,4 @@
+// @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -64,6 +65,7 @@ test('coverage counts sliced lines, not whole hunks', () => {
   s.chapters[0].hunks[0] = { file: 'src/Name.java', lines: [3, 3], slice: true };
   const cov = computeCoverage(s, files, buildReport(s, files));
   const name = cov.counted.find((f) => f.path === 'src/Name.java');
+  assert.ok(name, 'src/Name.java is counted');
   assert.equal(name.explained, 1);
   assert.equal(name.missing, 2);
 });

@@ -1,10 +1,20 @@
+// @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveDiff, describeTarget, repoRoot, parseTarget, prNumber, EMPTY_TREE } from '../lib/git.mjs';
 
 // Records every invocation and answers from a script keyed by "cmd args".
+/**
+ * @param {Record<string, string | Error>} script output per command line, or the error it throws
+ */
 function fakeRun(script) {
+  /** @type {string[]} */
   const calls = [];
+  /**
+   * @param {string} cmd
+   * @param {string[]} args
+   * @returns {string}
+   */
   const run = (cmd, args) => {
     const key = [cmd, ...args].join(' ');
     calls.push(key);
@@ -20,6 +30,7 @@ function fakeRun(script) {
 }
 
 // What execFileSync throws for a command that exited with `code`.
+/** @param {number} code */
 const exit = (code) => Object.assign(new Error(`exit ${code}`), { status: code });
 
 // The flags that pin git's output format, present on every diff invocation.

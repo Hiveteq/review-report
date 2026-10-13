@@ -7,7 +7,7 @@ Thanks for looking. A few ground rules keep this small project easy to trust.
 - **Bug reports:** include the `--dump-numbered` output for the file involved and the story snippet that
   triggered it. Redact anything private.
 - **Pull requests:** one problem each, titled `type(scope): summary` (see AGENTS.md), with the template
-  checklist filled in. Run `npm test` first;
+  checklist filled in. Run `npm test`, `npm run lint` and `npm run typecheck` first;
   for page changes also run `npm run e2e` and attach a screenshot.
 - **Written with an AI agent?** Fine. Say which agent and model, and read the whole diff yourself before
   opening the pull request.

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+**Changes**
+- The code follows modern JavaScript throughout, with JSDoc types; ESLint and a TypeScript type check run in CI.
+- `render.mjs` now rejects `--pages` and `--single` together; before, the later one won silently. Options also
+  accept the `--name=value` form.
+
 ## 0.1.2
 
 **Features**

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 // review-report renderer. Story JSON + diff target → one self-contained HTML file.
 // Usage:
 //   node render.mjs --story <path> [--target <spec>] [--out <path>] [--context N] [--min-coverage PCT] [--only <glob,...>] [--pages|--single] [--diff-file <path>]
@@ -6,6 +7,7 @@
 //   node render.mjs --dump-numbered [--target <spec>] [--context N] [--diff-file <path>]
 import { readFileSync, writeFileSync, mkdirSync, existsSync, appendFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { parseArgs as parseCli } from 'node:util';
 import { join, dirname, resolve, relative, isAbsolute, sep } from 'node:path';
 import { parseDiff, formatNumbered } from './lib/diff.mjs';
 import { resolveDiff, describeTarget, repoRoot, prNumber } from './lib/git.mjs';
@@ -13,9 +15,32 @@ import { validateStory, buildReport } from './lib/story.mjs';
 import { renderPages } from './lib/html.mjs';
 import { computeCoverage, matchGlob } from './lib/coverage.mjs';
 
+/** @typedef {import('./lib/coverage.mjs').CountedFile} CountedFile */
+/** @typedef {import('./lib/diff.mjs').DiffFile} DiffFile */
+/** @typedef {import('./lib/git.mjs').ExecError} ExecError */
+/** @typedef {import('./lib/story.mjs').Story} Story */
+
 const USAGE = 'usage: node render.mjs --story <path> [--target <spec>] [--out <path>] [--context N] [--diff-file <path>]\n' +
   '       node render.mjs --dump-diff [--target <spec>] [--context N] [--diff-file <path>]\n' +
   '       node render.mjs --dump-numbered [--target <spec>] [--context N] [--diff-file <path>]';
+
+// Declared before main() runs below: a const is not usable until its line has executed.
+const OPTIONS = /** @type {const} */ ({
+  story: { type: 'string' },
+  target: { type: 'string' },
+  out: { type: 'string' },
+  context: { type: 'string' },
+  'min-coverage': { type: 'string' },
+  only: { type: 'string' },
+  'diff-file': { type: 'string' },
+  'dump-diff': { type: 'boolean' },
+  'dump-numbered': { type: 'boolean' },
+  pages: { type: 'boolean' },
+  single: { type: 'boolean' },
+});
+
+// Names of the options that take a value; used by joinDashValues below.
+const STRING_FLAGS = new Set(Object.entries(OPTIONS).filter(([, o]) => o.type === 'string').map(([k]) => `--${k}`));
 
 // Fail clearly on an old Node instead of with an obscure error further in.
 const nodeMajor = Number(process.versions.node.split('.')[0]);
@@ -26,24 +51,50 @@ if (nodeMajor < 22) {
 
 main(parseArgs(process.argv.slice(2)));
 
-function parseArgs(argv) {
-  const opts = { context: 3, minCoverage: 80 };
+// util.parseArgs rejects a value that starts with a dash as ambiguous. Yet `--target --staged`,
+// `--out -x.html` and `--context -1` are valid input: the first two are documented and the last
+// must reach our own range check. Each such pair (a string option followed by a value that
+// starts with a dash) is therefore joined into `--name=value` before parsing.
+
+/**
+ * @param {string[]} argv
+ * @returns {string[]}
+ */
+function joinDashValues(argv) {
+  const out = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    const next = () => { if (i + 1 >= argv.length) usage(`${a} needs a value`); return argv[++i]; };
-    if (a === '--story') opts.story = next();
-    else if (a === '--target') opts.target = next();
-    else if (a === '--out') opts.out = next();
-    else if (a === '--context') opts.context = Number(next());
-    else if (a === '--min-coverage') opts.minCoverage = Number(next());
-    else if (a === '--only') opts.only = next().split(',').map((g) => g.trim()).filter(Boolean);
-    else if (a === '--diff-file') opts.diffFile = next();
-    else if (a === '--dump-diff') opts.dumpDiff = true;
-    else if (a === '--dump-numbered') opts.dumpNumbered = true;
-    else if (a === '--pages') opts.pages = true;
-    else if (a === '--single') opts.pages = false;
-    else usage(`unknown argument ${a}`);
+    if (STRING_FLAGS.has(a) && i + 1 < argv.length && argv[i + 1].startsWith('-')) out.push(`${a}=${argv[++i]}`);
+    else out.push(a);
   }
+  return out;
+}
+
+/**
+ * @param {string[]} argv
+ * @returns {{ story?: string, target?: string, out?: string, context: number, minCoverage: number,
+ *   only?: string[], diffFile?: string, dumpDiff: boolean, dumpNumbered: boolean, pages?: boolean }}
+ */
+function parseArgs(argv) {
+  let values;
+  try {
+    ({ values } = parseCli({ args: joinDashValues(argv), options: OPTIONS, strict: true, allowPositionals: false }));
+  } catch (e) {
+    return usage(/** @type {Error} */ (e).message.split('\n')[0]);
+  }
+  if (values.pages && values.single) usage('--pages and --single cannot be used together');
+  const opts = {
+    story: values.story,
+    target: values.target,
+    out: values.out,
+    context: values.context === undefined ? 3 : Number(values.context),
+    minCoverage: values['min-coverage'] === undefined ? 80 : Number(values['min-coverage']),
+    only: values.only?.split(',').map((g) => g.trim()).filter(Boolean),
+    diffFile: values['diff-file'],
+    dumpDiff: values['dump-diff'] ?? false,
+    dumpNumbered: values['dump-numbered'] ?? false,
+    pages: values.pages ? true : values.single ? false : undefined,
+  };
   if (!opts.dumpDiff && !opts.dumpNumbered && !opts.story) usage('--story is required');
   if (!Number.isInteger(opts.context) || opts.context < 0) usage('--context must be a non-negative integer');
   if (!(opts.minCoverage >= 0 && opts.minCoverage <= 100)) usage('--min-coverage must be 0..100');
@@ -51,17 +102,22 @@ function parseArgs(argv) {
   return opts;
 }
 
+/**
+ * @param {string} msg
+ * @returns {never}
+ */
 function usage(msg) {
   process.stderr.write(`error: ${msg}\n${USAGE}\n`);
   process.exit(2);
 }
 
+/** @param {ReturnType<typeof parseArgs>} opts */
 function main(opts) {
   let diffText;
   try {
     diffText = opts.diffFile ? readFileSync(opts.diffFile, 'utf8') : resolveDiff(opts.target, opts.context);
   } catch (e) {
-    fail([opts.diffFile ? `cannot read diff file ${opts.diffFile}: ${e.message}` : `cannot resolve diff for target ${opts.target ?? '(default)'}: ${firstLine(e)}`]);
+    fail([opts.diffFile ? `cannot read diff file ${opts.diffFile}: ${/** @type {Error} */ (e).message}` : `cannot resolve diff for target ${opts.target ?? '(default)'}: ${firstLine(e)}`]);
   }
   if (opts.dumpDiff) {
     process.stdout.write(diffText);
@@ -72,11 +128,13 @@ function main(opts) {
     return;
   }
 
+  // Typed as a Story from here on: validateStory below stops the run when it is not one.
+  /** @type {Story} */
   let story;
   try {
-    story = JSON.parse(readFileSync(opts.story, 'utf8'));
+    story = JSON.parse(readFileSync(/** @type {string} */ (opts.story), 'utf8')); // set: parseArgs requires it outside the dump modes
   } catch (e) {
-    fail([`cannot parse story ${opts.story}: ${e.message}`]);
+    fail([`cannot parse story ${opts.story}: ${/** @type {Error} */ (e).message}`]);
   }
   const errors = validateStory(story);
   if (errors.length) fail(errors);
@@ -138,7 +196,8 @@ function main(opts) {
   if (pct < opts.minCoverage) {
     gate.push(`coverage ${pct}% of changed lines shown in chapters; minimum is ${opts.minCoverage}%. Not shown, largest first:`);
     for (const f of cov.uncovered.slice(0, 40)) {
-      const c = cov.counted.find((x) => x.path === f.path);
+      // Every uncovered file comes from counted, so find always succeeds.
+      const c = /** @type {CountedFile} */ (cov.counted.find((x) => x.path === f.path));
       gate.push(`  ${f.path} +${c.adds} -${c.dels} (${f.missing} not shown)`);
     }
     if (cov.uncovered.length > 40) gate.push(`  … and ${cov.uncovered.length - 40} more files`);
@@ -159,18 +218,27 @@ function main(opts) {
     mkdirSync(outDir, { recursive: true });
     for (const p of renderPages(story, report, files, { css, js }, { paged })) writeFileSync(paged ? join(outDir, p.path) : outPath, p.html);
   } catch (e) {
-    fail([`cannot write ${outPath}: ${e.message}`]);
+    fail([`cannot write ${outPath}: ${/** @type {Error} */ (e).message}`]);
   }
   if (root) {
-    try { ensureIgnored(root, outPath); } catch (e) { process.stdout.write(`note: could not update .gitignore: ${e.message}\n`); }
+    try { ensureIgnored(root, outPath); } catch (e) { process.stdout.write(`note: could not update .gitignore: ${/** @type {Error} */ (e).message}\n`); }
   }
   process.stdout.write(`${outPath}\n`);
 }
 
+/**
+ * @param {DiffFile[]} files
+ * @param {string[] | undefined} globs
+ * @returns {DiffFile[]}
+ */
 function onlyPart(files, globs) {
   return globs ? files.filter((f) => globs.some((g) => matchGlob(g, f.path))) : files;
 }
 
+/**
+ * @param {string[]} errors
+ * @returns {never}
+ */
 function fail(errors) {
   // Lines indented by two spaces continue the previous error (file lists); they carry no prefix.
   for (const e of errors) process.stderr.write(e.startsWith('  ') ? `${e}\n` : `error: ${e}\n`);
@@ -181,25 +249,41 @@ function fail(errors) {
 // --no-index answers for a tracked path too. Returns true (ignored), false (not
 // ignored) or null when git could not tell (path behind a symlink, git missing);
 // the caller then leaves .gitignore alone rather than guess.
+/**
+ * @param {string} root
+ * @param {string} path
+ * @returns {boolean | null}
+ */
 function gitIgnores(root, path) {
   try {
     execFileSync('git', ['check-ignore', '-q', '--no-index', path], { cwd: root, stdio: 'ignore' });
     return true;
   } catch (e) {
-    return e.status === 1 ? false : null;
+    return /** @type {ExecError} */ (e).status === 1 ? false : null;
   }
 }
 
 // git/gh failures carry their stderr in the message; keep the first meaningful line.
+/**
+ * @param {unknown} e what a failed git or gh call threw
+ * @returns {string}
+ */
 function firstLine(e) {
-  const text = (e.stderr && String(e.stderr).trim()) || e.message || String(e);
+  const err = /** @type {ExecError} */ (e);
+  const text = (err.stderr && String(err.stderr).trim()) || err.message || String(err);
   return text.split('\n').filter(Boolean)[0] ?? 'unknown error';
 }
 
+/** @returns {string | null} */
 function safeRepoRoot() {
   try { return repoRoot(); } catch { return null; }
 }
 
+/**
+ * @param {string | null} root
+ * @param {string} title
+ * @returns {string}
+ */
 function defaultOut(root, title) {
   const now = new Date();
   const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -209,6 +293,10 @@ function defaultOut(root, title) {
 // Letters and digits of any script survive, so titles in other languages keep a
 // distinct file name instead of collapsing to "<date>-.html" and overwriting each
 // other; accents are folded (Café → cafe).
+/**
+ * @param {string} title
+ * @returns {string}
+ */
 function slugify(title) {
   const slug = title.normalize('NFKD').toLowerCase()
     .replace(/\p{M}+/gu, '')
@@ -220,6 +308,10 @@ function slugify(title) {
 
 // Reports are local working artifacts. Ignore the folder once, quietly, only
 // when the report actually landed under <root>/reports/review/.
+/**
+ * @param {string} root
+ * @param {string} outPath
+ */
 function ensureIgnored(root, outPath) {
   const rel = relative(root, outPath).split(sep).join('/');
   if (isAbsolute(rel) || !rel.startsWith('reports/review/')) return;

@@ -1,3 +1,4 @@
+// @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -15,15 +16,32 @@ const fixtureStory = join(skill, 'test/fixture.story.json');
 const fixture = JSON.parse(readFileSync(fixtureStory, 'utf8'));
 
 // Paths in output are compared with forward slashes, so assertions read the same on Windows.
+/**
+ * @param {string[]} args
+ * @param {string} cwd
+ * @param {NodeJS.ProcessEnv} [env]
+ */
 function run(args, cwd, env = process.env) {
   const r = spawnSync(process.execPath, [join(skill, 'render.mjs'), ...args], { cwd, encoding: 'utf8', env });
   return { ...r, stdout: (r.stdout ?? '').replace(/\\/g, '/'), stderr: (r.stderr ?? '').replace(/\\/g, '/') };
 }
+/**
+ * @param {string} dir
+ * @param {...string} args
+ * @returns {string}
+ */
 function git(dir, ...args) {
   const r = spawnSync('git', ['-c', 'user.email=t@t.t', '-c', 'user.name=t', '-c', 'commit.gpgsign=false', ...args], { cwd: dir, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout;
 }
+// The last line a run printed: the report path, when the render succeeded.
+/**
+ * @param {string} text
+ * @returns {string}
+ */
+const lastLine = (text) => /** @type {string} */ (text.trim().split('\n').pop()); // split never returns an empty array
+
 function tempRepo() {
   // realpath: macOS /var is /private/var; Windows 8.3 short names expand. git reports the real, long path.
   const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'rr-')));
@@ -45,6 +63,11 @@ function repoWithHistory() {
   appendFileSync(join(dir, 'a.txt'), 'dirty\n');
   return dir;
 }
+/**
+ * @param {string} dir
+ * @param {string} title
+ * @returns {string} path of the written story
+ */
 function storyWithTitle(dir, title) {
   const p = join(dir, `${Math.random().toString(36).slice(2)}.json`);
   writeFileSync(p, JSON.stringify({ ...fixture, meta: { ...fixture.meta, title } }));
@@ -55,7 +78,7 @@ test('renders fixture to default path under repo root and gitignores it', () => 
   const dir = tempRepo();
   const r = run(['--story', fixtureStory, '--diff-file', fixtureDiff], join(dir, 'sub'));
   assert.equal(r.status, 0, r.stderr);
-  const outPath = r.stdout.trim().split('\n').pop();
+  const outPath = lastLine(r.stdout);
   assert.match(outPath, /\/reports\/review\/\d{4}-\d{2}-\d{2}-greeter-takes-a-name-value-object\.html$/);
   assert.ok(outPath.toLowerCase().startsWith(dir.replace(/\\/g, '/').toLowerCase()), 'output under repo root, not cwd');
   assert.ok(existsSync(outPath));
@@ -81,7 +104,7 @@ test('.gitignore gains the entry once, even when a report file is tracked', () =
   const dir = tempRepo();
   const r1 = run(['--story', fixtureStory, '--diff-file', fixtureDiff], dir);
   assert.equal(r1.status, 0, r1.stderr);
-  git(dir, 'add', '-f', r1.stdout.trim().split('\n').pop());
+  git(dir, 'add', '-f', lastLine(r1.stdout));
   const r2 = run(['--story', fixtureStory, '--diff-file', fixtureDiff], dir);
   assert.equal(r2.status, 0, r2.stderr);
   assert.equal((readFileSync(join(dir, '.gitignore'), 'utf8').match(/reports\/review\//g) ?? []).length, 1);
@@ -140,7 +163,7 @@ test('--dump-numbered prints line numbers next to each diff line', () => {
   const r = run(['--dump-numbered', '--diff-file', fixtureDiff], dir);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /^=== src\/Greeter\.java \(modified\)/m);
-  assert.match(r.stdout, /^ {4}- {5}4 \+    public String greet\(Name name\) \{$/m);
+  assert.match(r.stdout, /^ {4}- {5}4 \+ {4}public String greet\(Name name\) \{$/m);
 });
 
 test('setup failures print error: lines, not stack traces', () => {
@@ -205,12 +228,13 @@ test('default filename uses the local date, not UTC', () => {
   assert.equal(r.status, 0, r.stderr);
   const now = new Date();
   const local = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  assert.ok(r.stdout.trim().split('\n').pop().includes(`/reports/review/${local}-`), r.stdout);
+  assert.ok(lastLine(r.stdout).includes(`/reports/review/${local}-`), r.stdout);
 });
 
 test('titles in other scripts keep a distinct file name instead of collapsing to <date>-.html', () => {
   const dir = tempRepo();
-  const out = (title) => run(['--story', storyWithTitle(dir, title), '--diff-file', fixtureDiff], dir).stdout.trim().split('\n').pop();
+  /** @param {string} title */
+  const out = (title) => lastLine(run(['--story', storyWithTitle(dir, title), '--diff-file', fixtureDiff], dir).stdout);
   assert.match(out('Рефакторинг парсера'), /-рефакторинг-парсера\.html$/);
   assert.match(out('重构解析器'), /-重构解析器\.html$/);
   assert.match(out('Café menu'), /-cafe-menu\.html$/);
@@ -257,8 +281,8 @@ test('coverage below the minimum fails with the uncovered files listed; --min-co
   const r = run(['--story', path, '--diff-file', fixtureDiff], dir);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /^error: coverage 21% of changed lines shown in chapters; minimum is 80%/m);
-  assert.match(r.stderr, /^  src\/Greeter\.java \+3 -2 \(5 not shown\)$/m);
-  assert.match(r.stderr, /^  README\.md \+2 -2 \(4 not shown\)$/m);
+  assert.match(r.stderr, /^ {2}src\/Greeter\.java \+3 -2 \(5 not shown\)$/m);
+  assert.match(r.stderr, /^ {2}README\.md \+2 -2 \(4 not shown\)$/m);
   assert.match(r.stderr, /add chapters for these files, or exclude them in the story with a reason/);
   const ok = run(['--story', path, '--diff-file', fixtureDiff, '--min-coverage', '20'], dir);
   assert.equal(ok.status, 0, ok.stderr);
@@ -291,10 +315,10 @@ test('--pages writes a folder with index and chapter pages; small reports stay s
   const dir = tempRepo();
   const single = run(['--story', fixtureStory, '--diff-file', fixtureDiff], dir);
   assert.equal(single.status, 0, single.stderr);
-  assert.match(single.stdout.trim().split('\n').pop(), /\.html$/);
+  assert.match(lastLine(single.stdout), /\.html$/);
   const paged = run(['--story', fixtureStory, '--diff-file', fixtureDiff, '--pages'], dir);
   assert.equal(paged.status, 0, paged.stderr);
-  const index = paged.stdout.trim().split('\n').pop();
+  const index = lastLine(paged.stdout);
   assert.match(index, /\/reports\/review\/\d{4}-\d{2}-\d{2}-greeter-takes-a-name-value-object\/index\.html$/);
   assert.ok(existsSync(index));
   assert.ok(existsSync(join(index, '..', 'chapter-01.html')));
@@ -323,7 +347,7 @@ test('a render before the reader pass writes the same path and says so in the he
   const p = join(dir, 'd.json'); writeFileSync(p, JSON.stringify(s));
   const r = run(['--story', p, '--diff-file', fixtureDiff], dir);
   assert.equal(r.status, 0, r.stderr);
-  const out = r.stdout.trim().split('\n').pop();
+  const out = lastLine(r.stdout);
   assert.match(out, /-greeter-takes-a-name-value-object\.html$/);
   assert.match(readFileSync(out, 'utf8'), /Reader pass: not yet run\./);
   assert.match(r.stderr, /^warning: reader pass not recorded; the header says so. Run it and render again/m);
@@ -331,7 +355,7 @@ test('a render before the reader pass writes the same path and says so in the he
   writeFileSync(p, JSON.stringify(s));
   const r2 = run(['--story', p, '--diff-file', fixtureDiff], dir);
   assert.equal(r2.status, 0, r2.stderr);
-  assert.equal(r2.stdout.trim().split('\n').pop(), out, 'same path, overwritten');
+  assert.equal(lastLine(r2.stdout), out, 'same path, overwritten');
   assert.match(readFileSync(out, 'utf8'), /Reader pass: 1 round, 0 questions answered, none open\./);
 });
 
@@ -342,7 +366,7 @@ test('the header reports what the reader pass answered and what is still open', 
   const p = join(dir, 'b.json'); writeFileSync(p, JSON.stringify(s));
   const r = run(['--story', p, '--diff-file', fixtureDiff], dir);
   assert.equal(r.status, 0, r.stderr);
-  assert.match(readFileSync(r.stdout.trim().split('\n').pop(), 'utf8'), /Reader pass: 2 rounds, 41 questions answered, 3 still open\./);
+  assert.match(readFileSync(lastLine(r.stdout), 'utf8'), /Reader pass: 2 rounds, 41 questions answered, 3 still open\./);
 });
 
 test('the story must declare its test globs; an empty list is allowed', () => {
@@ -367,7 +391,7 @@ test('a test file shown in a chapter needs a covers statement', () => {
   writeFileSync(p, JSON.stringify(s));
   const ok = run(['--story', p, '--diff-file', fixtureDiff], dir);
   assert.equal(ok.status, 0, ok.stderr);
-  assert.match(readFileSync(ok.stdout.trim().split('\n').pop(), 'utf8'), /<div class="covers"><span class="covers-label">Covers<\/span><p>Pins the record accessor; equality is not tested\.<\/p><\/div>/);
+  assert.match(readFileSync(lastLine(ok.stdout), 'utf8'), /<div class="covers"><span class="covers-label">Covers<\/span><p>Pins the record accessor; equality is not tested\.<\/p><\/div>/);
 });
 
 test('anchor warnings are printed but do not stop the render', () => {
@@ -378,4 +402,46 @@ test('anchor warnings are printed but do not stop the render', () => {
   const r = run(['--story', p, '--diff-file', fixtureDiff], dir);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stderr, /^warning: chapters\[0\]\.hunks\[0\]\.comments\[0\]: src\/Name\.java new line 2 does not contain `record`; new line 3 does/m);
+});
+
+test('dash-led target values (--staged, --working) are accepted after --target', () => {
+  const dir = repoWithHistory();
+  for (const target of ['--staged', '--working']) {
+    const r = run(['--dump-diff', '--target', target], dir);
+    assert.equal(r.status, 0, `${target}: ${r.stderr}`);
+  }
+});
+
+test('every documented option is accepted together', () => {
+  const dir = tempRepo();
+  const out = join(dir, 'all.html');
+  const r = run(['--story', fixtureStory, '--diff-file', fixtureDiff, '--out', out, '--context', '3',
+    '--min-coverage', '50', '--only', 'src/**,README.md', '--single'], dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(existsSync(out));
+});
+
+test('--pages and --single together are a usage error', () => {
+  const r = run(['--story', fixtureStory, '--diff-file', fixtureDiff, '--pages', '--single'], tempRepo());
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /^error: --pages and --single cannot be used together/m);
+});
+
+test('--context -1 reaches the range check instead of an ambiguity error', () => {
+  const r = run(['--story', fixtureStory, '--diff-file', fixtureDiff, '--context', '-1'], tempRepo());
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /^error: --context must be a non-negative integer/m);
+});
+
+test('--out accepts a file name that starts with a dash', () => {
+  const dir = tempRepo();
+  const r = run(['--story', fixtureStory, '--diff-file', fixtureDiff, '--out', '-x.html'], dir);
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(existsSync(join(dir, '-x.html')));
+});
+
+test('--target --target --staged is a usage error', () => {
+  const r = run(['--dump-diff', '--target', '--target', '--staged'], repoWithHistory());
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /^error: /m);
 });

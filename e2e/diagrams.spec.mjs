@@ -1,5 +1,9 @@
+// @ts-check
 // Several Mermaid diagrams on one page, rendered from the pinned CDN file.
 import { test, expect, reportUrl } from './reports.mjs';
+
+/** @typedef {import('@playwright/test').Page} Page */
+/** @typedef {import('@playwright/test').Locator} Locator */
 
 test.use({ cdn: true });
 
@@ -13,6 +17,7 @@ const DIAGRAMS = [
   ['wide flowchart', 'Stage ten of the pipeline'],
 ];
 
+/** @param {Page} page */
 async function expectEachDiagramInItsOwnBox(page) {
   const boxes = page.locator('pre.mermaid');
   await expect(boxes).toHaveCount(DIAGRAMS.length);
@@ -50,14 +55,20 @@ test('text on new and changed boxes stays dark in the dark theme', async ({ page
 });
 
 // Drawn and natural width of a diagram box, and whether the box scrolls sideways.
+/**
+ * @param {Locator} box
+ * @returns {Promise<{ drawn: number, natural: number, scrolls: boolean }>}
+ */
 function sizeOf(box) {
   return box.evaluate((pre) => {
-    const svg = pre.querySelector('svg');
+    // Cannot be null: every caller waits for the diagram's svg to be visible first.
+    const svg = /** @type {SVGSVGElement} */ (pre.querySelector('svg'));
     return { drawn: svg.getBoundingClientRect().width, natural: svg.viewBox.baseVal.width, scrolls: pre.scrollWidth > pre.clientWidth };
   });
 }
 
 test.describe('a diagram wider than its column', () => {
+  /** @param {Page} page */
   const wide = (page) => page.locator('figure.diagram').filter({ hasText: 'Stage ten of the pipeline' });
 
   test.beforeEach(async ({ page }) => {

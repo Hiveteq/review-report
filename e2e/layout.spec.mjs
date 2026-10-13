@@ -1,16 +1,36 @@
+// @ts-check
 // Page-wide settings (diff layout, notes placement, theme) and the sticky file header.
 import { test, expect, reportUrl } from './reports.mjs';
 
+// scrollTo's evaluate callback runs in the browser, not in Node.
+/* global window */
+
+/** @typedef {import('@playwright/test').Page} Page */
+/** @typedef {import('@playwright/test').Locator} Locator */
+/** @typedef {import('./reports.mjs').Box} Box */
+
+/**
+ * @param {Page} page
+ * @param {string} path
+ */
 const file = (page, path) => page.locator(`section.file[data-path="${path}"]`);
 
 // Opens a report with the browser's own scroll anchoring off, so a kept place proves the page script
 // kept it. Not every engine anchors, and none anchors on every change.
+/**
+ * @param {Page} page
+ * @param {string} name
+ */
 async function openWithoutScrollAnchoring(page, name) {
   await page.goto(reportUrl(name));
   await page.addStyleTag({ content: 'html, body { overflow-anchor: none; }' });
 }
 
 // Scrolls so the element's top edge sits `y` pixels below the top of the viewport.
+/**
+ * @param {Locator} locator
+ * @param {number} y
+ */
 async function scrollTo(locator, y) {
   await locator.evaluate((el, y) => window.scrollBy(0, el.getBoundingClientRect().top - y), y);
 }
@@ -37,7 +57,7 @@ test('switching the diff layout keeps the line the reader was on in place', asyn
   const splitRow = file(page, 'src/Catalog.java').locator('table.diff.split tr.line')
     .filter({ has: page.locator('td.num.new', { hasText: /^200$/ }) });
   await expect(splitRow).toBeVisible();
-  const box = await splitRow.boundingBox();
+  const box = /** @type {Box} */ (await splitRow.boundingBox());
   expect(Math.abs(box.y - 300)).toBeLessThanOrEqual(2);
 });
 
@@ -49,7 +69,7 @@ test('switching notes to inline keeps the line the reader was on in place', asyn
   await page.getByRole('button', { name: 'Notes: margin' }).click(); // adds a note row above, at line 50
 
   await expect(page.getByRole('button', { name: 'Notes: inline' })).toBeVisible();
-  expect(Math.abs((await row.boundingBox()).y - 300)).toBeLessThanOrEqual(2);
+  expect(Math.abs(/** @type {Box} */ (await row.boundingBox()).y - 300)).toBeLessThanOrEqual(2);
 });
 
 test('notes switch between the margin and inline rows, and the choice persists', async ({ page }) => {
@@ -86,7 +106,7 @@ test.describe('a file longer than the screen', () => {
     await scrollTo(file(page, 'src/Catalog.java').locator('tr[data-new="200"]'), 400);
 
     const header = file(page, 'src/Catalog.java').locator('header.file-header');
-    expect((await header.boundingBox()).y).toBeCloseTo(0, 0);
+    expect(/** @type {Box} */ (await header.boundingBox()).y).toBeCloseTo(0, 0);
     await expect(file(page, 'src/Catalog.java').getByRole('checkbox', { name: 'Viewed' })).toBeInViewport();
   });
 

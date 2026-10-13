@@ -1,3 +1,4 @@
+// @ts-check
 // Playwright globalSetup: renders every report the browser tests open, into a fresh folder under the
 // system temp directory. All inputs are made up: the demo Greeter fixture from the unit tests, variants
 // of it, and a generated long file for scrolling.
@@ -7,9 +8,18 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { REPORTS } from './reports.mjs';
 
+/** @typedef {import('../skills/review-report/lib/story.mjs').Story} Story */
+
 const skill = new URL('../skills/review-report/', import.meta.url);
+/** @param {string} name */
 const read = (name) => readFileSync(new URL(`test/${name}`, skill), 'utf8');
 
+/**
+ * @param {Story} story
+ * @param {string} diff
+ * @param {string} out file name under REPORTS
+ * @param {'--single' | '--pages'} layout
+ */
 function render(story, diff, out, layout) {
   const dir = join(REPORTS, 'input');
   const base = join(dir, out.replace(/\W+/g, '-'));
@@ -25,12 +35,14 @@ function render(story, diff, out, layout) {
 // must stick while its body scrolls past. Then a short file that comes up when the long one is ticked.
 function longChange() {
   const settings = Array.from({ length: 20 }, (_, i) => `    static final int SETTING_${i + 1} = ${i + 1};`);
-  const config = 'diff --git a/src/Config.java b/src/Config.java\nindex 7654321..1234567 100644\n' +
-    '--- a/src/Config.java\n+++ b/src/Config.java\n@@ -1,22 +1,22 @@\n' +
-    [' package demo;', ' final class Config {', ...settings.map((l) => `-${l}`), ...settings.map((l) => `+${l.replace('= ', '= 10 * ')}`)]
-      .join('\n') + '\n';
+  const configRows = [' package demo;', ' final class Config {', ...settings.map((l) => `-${l}`), ...settings.map((l) => `+${l.replace('= ', '= 10 * ')}`)];
+  const config = `diff --git a/src/Config.java b/src/Config.java\nindex 7654321..1234567 100644\n--- a/src/Config.java\n+++ b/src/Config.java\n@@ -1,22 +1,22 @@\n${configRows.join('\n')}\n`;
   const entries = Array.from({ length: 397 }, (_, i) => `    static final int ENTRY_${i + 1} = ${i + 1};`);
   const body = ['package demo;', 'final class Catalog {', ...entries, '}'];
+  /**
+   * @param {string} path
+   * @param {string[]} rows
+   */
   const file = (path, rows) => `diff --git a/${path} b/${path}\nnew file mode 100644\nindex 0000000..1234567\n--- /dev/null\n` +
     `+++ b/${path}\n@@ -0,0 +1,${rows.length} @@\n${rows.map((l) => `+${l}`).join('\n')}\n`;
   const diff = config + file('src/Catalog.java', body) + file('src/Next.java', ['package demo;', 'final class Next {}']);
@@ -52,7 +64,12 @@ function longChange() {
 // The demo story with every diagram shape the skill asks for on one page: the marked flowchart it
 // already has, a before/after pair, a state machine, a sequence, an entity diagram, and a flow too
 // wide for the column.
+/**
+ * @param {Story} story
+ * @returns {Story}
+ */
 function diagramsStory(story) {
+  /** @param {string} body */
   const fence = (body) => `\n\n\`\`\`mermaid\n${body}\n\`\`\``;
   const s = structuredClone(story);
   s.meta = { ...s.meta, title: 'Every diagram shape' };

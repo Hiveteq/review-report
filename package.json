@@ -12,10 +12,17 @@
     "example": "node skills/review-report/render.mjs --story skills/review-report/test/fixture.story.json --diff-file skills/review-report/test/fixture.diff --out skills/review-report/reference/example-report.html",
     "e2e": "playwright test",
     "screenshots": "node scripts/screenshots.mjs",
-    "update-cdn": "node scripts/update-cdn.mjs"
+    "update-cdn": "node scripts/update-cdn.mjs",
+    "lint": "eslint skills scripts e2e playwright.config.mjs eslint.config.js",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "license": "MIT",
   "devDependencies": {
-    "@playwright/test": "1.64.0"
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.64.0",
+    "@types/node": "20.19.43",
+    "eslint": "10.12.0",
+    "globals": "17.13.0",
+    "typescript": "7.0.2"
   }
 }

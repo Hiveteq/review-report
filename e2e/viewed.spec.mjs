@@ -1,8 +1,23 @@
+// @ts-check
 // Viewed ticks: stored per report in localStorage, shown per file, per chapter and in the totals.
 import { test, expect, reportUrl } from './reports.mjs';
 
+/** @typedef {import('@playwright/test').Page} Page */
+
+/**
+ * @param {Page} page
+ * @param {string} path
+ */
 const file = (page, path) => page.locator(`section.file[data-path="${path}"]`);
+/**
+ * @param {Page} page
+ * @param {string} path
+ */
 const viewed = (page, path) => file(page, path).getByRole('checkbox', { name: 'Viewed' });
+/**
+ * @param {Page} page
+ * @param {string} path
+ */
 const chapterMark = (page, path) => page.locator(`section.chapter[data-files="${path}"] .chapter-viewed`);
 
 test('ticking every file of a chapter marks the chapter and the totals', async ({ page }) => {

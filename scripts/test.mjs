@@ -1,3 +1,4 @@
+// @ts-check
 // Runs the unit and CLI tests with explicit file paths, so no shell glob or quoting is involved
 // and the same command works in bash, zsh, PowerShell and cmd.
 import { readdirSync } from 'node:fs';

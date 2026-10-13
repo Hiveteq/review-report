@@ -1,12 +1,26 @@
+// @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { parseDiff } from '../lib/diff.mjs';
 import { validateStory, buildReport } from '../lib/story.mjs';
 
+/** @typedef {import('../lib/story.mjs').ReportChapter} ReportChapter */
+/** @typedef {import('../lib/story.mjs').Selection} Selection */
+
 const OV = { bigPicture: 'a\n```mermaid\nflowchart LR\nA-->B\n```', why: 'b', approach: 'c', howToRead: 'd' };
 const files = parseDiff(readFileSync(new URL('./fixture.diff', import.meta.url), 'utf8'));
 const story = () => JSON.parse(readFileSync(new URL('./fixture.story.json', import.meta.url), 'utf8'));
+
+// What a diff chapter shows, file by file; the test fails on an html chapter.
+/**
+ * @param {ReportChapter} ch
+ * @returns {Selection[]}
+ */
+function selectionsOf(ch) {
+  assert.equal(ch.kind, 'diff');
+  return ch.hunks;
+}
 
 test('fixture story is valid', () => {
   assert.deepEqual(validateStory(story()), []);
@@ -41,7 +55,7 @@ test('empty chapters is an error', () => {
 test('selects hunks overlapping the new-side range and defaults comment side to new', () => {
   const report = buildReport(story(), files);
   assert.deepEqual(report.errors, []);
-  const greeter = report.chapters[1].hunks[0];
+  const greeter = selectionsOf(report.chapters[1])[0];
   assert.equal(greeter.file.path, 'src/Greeter.java');
   assert.equal(greeter.hunks.length, 1);
   assert.deepEqual(greeter.comments.map((c) => [c.line, c.side]), [[4, 'new'], [5, 'old']]);
@@ -49,9 +63,9 @@ test('selects hunks overlapping the new-side range and defaults comment side to 
 
 test('"all" selects every hunk, including pure deletions', () => {
   const report = buildReport(story(), files);
-  assert.equal(report.chapters[0].hunks[0].hunks.length, 1);
-  assert.equal(report.chapters[2].hunks[0].file.status, 'deleted');
-  assert.equal(report.chapters[2].hunks[0].hunks.length, 1);
+  assert.equal(selectionsOf(report.chapters[0])[0].hunks.length, 1);
+  assert.equal(selectionsOf(report.chapters[2])[0].file.status, 'deleted');
+  assert.equal(selectionsOf(report.chapters[2])[0].hunks.length, 1);
 });
 
 test('unreferenced hunks land in the appendix, referenced ones do not', () => {
@@ -113,6 +127,7 @@ test('a non-array where a list is expected is reported, not thrown', () => {
 });
 
 test('sentence counting understands other scripts and abbreviations', () => {
+  /** @param {string} intro */
   const withIntro = (intro) => validateStory({ meta: { title: 't', readerPass: { rounds: 1, questionsAnswered: 0, openQuestions: 0 } }, overview: OV, glossary: [{ term: 'a', meaning: 'b' }], chapters: [{ title: 'x', intro, hunks: [] }] });
   const japanese = withIntro('この章では新しい型を示します。次の章はこの型を使う呼び出し元です。');
   assert.ok(!japanese.some((e) => e.includes('two sentences')), japanese.join('\n'));
@@ -173,7 +188,7 @@ test('slice shows only the given new-side range of a hunk; the rest stays in the
   s.chapters[0].hunks[0] = { file: 'src/Name.java', lines: [3, 3], slice: true, comments: [{ line: 3, text: 'The record.' }] };
   const report = buildReport(s, files);
   assert.deepEqual(report.errors, []);
-  const sel = report.chapters[0].hunks[0];
+  const sel = selectionsOf(report.chapters[0])[0];
   assert.deepEqual(sel.hunks[0].lines.map((l) => l.new), [3]);
   assert.equal(sel.hunks[0].newStart, 3);
   const rest = report.appendix.find((e) => e.file.path === 'src/Name.java');
@@ -196,7 +211,7 @@ test('a slice keeps deleted lines that sit inside its range', () => {
   s.chapters[1].hunks[0] = { file: 'src/Greeter.java', lines: [4, 5], slice: true, comments: [{ line: 5, side: 'old', text: 'old' }] };
   const report = buildReport(s, files);
   assert.deepEqual(report.errors, []);
-  assert.deepEqual(report.chapters[1].hunks[0].hunks[0].lines.map((l) => [l.type, l.old, l.new]), [
+  assert.deepEqual(selectionsOf(report.chapters[1])[0].hunks[0].lines.map((l) => [l.type, l.old, l.new]), [
     ['del', 4, null], ['del', 5, null], ['add', null, 4], ['add', null, 5],
   ]);
 });
@@ -219,7 +234,7 @@ test('tests must be an array of globs and covers must be text', () => {
 test('covers is carried onto the selected hunk', () => {
   const s = story();
   s.chapters[0].hunks[0].covers = 'Pins the record shape.';
-  assert.equal(buildReport(s, files).chapters[0].hunks[0].covers, 'Pins the record shape.');
+  assert.equal(selectionsOf(buildReport(s, files).chapters[0])[0].covers, 'Pins the record shape.');
 });
 
 test('a note naming code that sits on the next line gets a warning with the likely line', () => {
