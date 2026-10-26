@@ -105,30 +105,51 @@ export function firstLine(e) {
 const prRef = (pr, kind) => `refs/review-report/pr/${pr}/${kind}`;
 
 function resolvePr(pr, context, run, notes) {
-  let ghMissing = false;
+  let suggestGh = false;
   try {
     const diff = run('gh', ['pr', 'diff', pr, '--color', 'never']);
     if (context !== 3) notes.push('--context is ignored when gh fetches the pull request; use <base>...<head> for wider context');
     return diff;
   } catch (e) {
-    ghMissing = e.code === 'ENOENT';
+    const ghMissing = e.code === 'ENOENT';
+    suggestGh = ghMissing && hasGitHubRemote(run);
     const benefit = 'for exact branch names in the report header and the PR description for Claude to read';
-    notes.push(ghMissing
-      ? `gh is not installed; fetched PR #${pr} with git instead. Install gh (https://cli.github.com) ${benefit}.`
-      : `gh could not fetch it (${firstLine(e)}); fetched PR #${pr} with git instead.`);
+    if (suggestGh) notes.push(`gh is not installed; fetched PR #${pr} with git instead. Install gh (https://cli.github.com) ${benefit}.`);
+    else if (!ghMissing) notes.push(`gh could not fetch it (${firstLine(e)}); fetched PR #${pr} with git instead.`);
   }
-  const fetched = fetchPr(pr, run, ghMissing);
+  const fetched = fetchPr(pr, run, suggestGh);
   return run('git', [...DIFF_FORMAT, `-U${context}`, ...prRange(pr, fetched, run, notes)]);
+}
+
+// Installing gh helps only where gh works, so the advice needs a remote on github.com. The URLs
+// are read as configured, before url.<base>.insteadOf rewrites them. GitHub Enterprise hosts are
+// not recognised, so their users get no install advice.
+function hasGitHubRemote(run) {
+  let listing = '';
+  try {
+    listing = run('git', ['config', '--get-regexp', '^remote\\..*\\.url$']);
+  } catch (e) {
+    // `git config --get-regexp` exits 1 when nothing matches: no remote has a URL.
+    if (e.status !== 1) throw e;
+  }
+  return listing.split('\n').some((line) => urlHost(line.split(' ')[1] ?? '') === 'github.com');
+}
+
+// The host of a remote URL: a URL with a scheme (https://, ssh://), or scp-like `user@host:path`.
+// A local path has none.
+function urlHost(url) {
+  if (URL.canParse(url)) return new URL(url).hostname.toLowerCase();
+  return /^(?:[^@/]+@)?([^:/]+):/.exec(url)?.[1].toLowerCase() ?? '';
 }
 
 // Fetches PR <pr> from the first remote that has it: upstream first (fork workflows), then
 // origin, then any other remote. `ls-remote` says which of the PR's refs exist: its output is
 // data, unlike git's error messages, which are translated into the user's language.
-function fetchPr(pr, run, ghMissing) {
+function fetchPr(pr, run, suggestGh) {
   const names = run('git', ['remote']).split('\n').map((s) => s.trim()).filter(Boolean);
   const first = ['upstream', 'origin'].filter((n) => names.includes(n));
   const remotes = [...first, ...names.filter((n) => !first.includes(n))];
-  const fix = ghMissing ? 'Install gh, or pass --target <base>...<head>.' : 'Pass --target <base>...<head>.';
+  const fix = suggestGh ? 'Install gh, or pass --target <base>...<head>.' : 'Pass --target <base>...<head>.';
   if (!remotes.length) throw new Error(`PR #${pr} cannot be fetched: this repository has no remotes. Pass --target <base>...<head>.`);
   for (const remote of remotes) {
     const listing = run('git', ['ls-remote', remote, `refs/pull/${pr}/head`, `refs/pull/${pr}/merge`]);

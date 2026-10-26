@@ -129,8 +129,13 @@ const listed = (...kinds) => kinds.map((k) => `${k === 'head' ? 'h1' : 'm1'}\tre
 const fetchPrRefs = (remote, ...kinds) => ['git fetch --quiet --no-tags --refmap=', remote,
   ...kinds.map((k) => `+refs/pull/12/${k}:${PR(k)}`)].join(' ');
 const GH_DIFF = 'gh pr diff 12 --color never';
+// The repository's remote URLs as git config stores them, read to decide whether gh would help.
+const REMOTE_URLS = 'git config --get-regexp ^remote\\..*\\.url$';
+const hostedAt = (url) => ({ [REMOTE_URLS]: `remote.origin.url ${url}\n` });
+const onGitHub = hostedAt('https://github.com/acme/demo.git');
 // An open PR on origin whose merge ref is current: its second parent is the PR head.
 const openOnOrigin = {
+  ...onGitHub,
   'git remote': 'origin\n',
   [lsRemote('origin')]: listed('head', 'merge'),
   [fetchPrRefs('origin', 'head', 'merge')]: '',
@@ -138,6 +143,7 @@ const openOnOrigin = {
 };
 // A PR on origin with no merge ref (merged or closed), origin's default branch being main.
 const closedOnOrigin = {
+  ...onGitHub,
   'git remote': 'origin\n',
   [lsRemote('origin')]: listed('head'),
   [fetchPrRefs('origin', 'head')]: '',
@@ -228,18 +234,76 @@ test('a PR merged with a merge commit is diffed from the default branch just bef
 
 test('a network failure surfaces git\'s own message', () => {
   const offline = failed(128, "fatal: unable to access 'https://example.invalid/': Could not resolve host\n");
-  const run = fakeRun({ [GH_DIFF]: notInstalled('gh'), 'git remote': 'origin\n', [lsRemote('origin')]: offline });
+  const run = fakeRun({ [GH_DIFF]: notInstalled('gh'), ...onGitHub, 'git remote': 'origin\n', [lsRemote('origin')]: offline });
   assert.throws(() => resolveDiff('#12', 3, run, []), (e) => e === offline);
 });
 
 test('a PR on no remote, and a repository with no remotes, give errors naming the fix', () => {
-  const absent = fakeRun({ [GH_DIFF]: notInstalled('gh'), 'git remote': 'origin\n', [lsRemote('origin')]: '' });
+  const absent = fakeRun({ [GH_DIFF]: notInstalled('gh'), ...onGitHub, 'git remote': 'origin\n', [lsRemote('origin')]: '' });
   assert.throws(() => resolveDiff('#12', 3, absent, []), /^Error: PR #12 not found on origin\. Install gh, or pass --target <base>\.\.\.<head>\.$/);
   const ghFailed = fakeRun({ [GH_DIFF]: failed(1, 'not found\n'), 'git remote': 'origin\n', [lsRemote('origin')]: '' });
   assert.throws(() => resolveDiff('#12', 3, ghFailed, []), /^Error: PR #12 not found on origin\. Pass --target <base>\.\.\.<head>\.$/,
     'no install advice when gh is installed');
-  const none = fakeRun({ [GH_DIFF]: notInstalled('gh'), 'git remote': '' });
+  const none = fakeRun({ [GH_DIFF]: notInstalled('gh'), [REMOTE_URLS]: exit(1), 'git remote': '' });
   assert.throws(() => resolveDiff('#12', 3, none, []), /this repository has no remotes\. Pass --target <base>\.\.\.<head>\./);
+});
+
+test('without gh, a repository with no remote on github.com gets no note suggesting gh', () => {
+  const notes = [];
+  const run = fakeRun({
+    [GH_DIFF]: notInstalled('gh'),
+    ...openOnOrigin,
+    ...hostedAt('https://gitlab.com/acme/demo.git'),
+    [`${GIT} -U3 ${PR('merge')}^1 ${PR('merge')}`]: 'OPEN',
+  });
+  assert.equal(resolveDiff('#12', 3, run, notes), 'OPEN');
+  assert.deepEqual(notes, []);
+});
+
+test('without gh, a PR missing from a remote not on github.com is an error without install advice', () => {
+  const run = fakeRun({
+    [GH_DIFF]: notInstalled('gh'),
+    ...hostedAt('https://gitlab.com/acme/demo.git'),
+    'git remote': 'origin\n',
+    [lsRemote('origin')]: '',
+  });
+  assert.throws(() => resolveDiff('#12', 3, run, []), /^Error: PR #12 not found on origin\. Pass --target <base>\.\.\.<head>\.$/);
+});
+
+// Remote URL forms git accepts. Only the host decides; a path or a look-alike host does not count.
+for (const [url, suggested] of [
+  ['https://github.com/acme/demo.git', true],
+  ['https://user@GitHub.com/acme/demo', true],
+  ['git@github.com:acme/demo.git', true],
+  ['ssh://git@github.com/acme/demo.git', true],
+  ['https://gitlab.com/acme/demo.git', false],
+  ['https://github.com.example.org/acme/demo.git', false],
+  ['https://example.org/github.com/demo.git', false],
+  ['/srv/git/github.com/demo.git', false],
+]) {
+  test(`without gh, a remote at ${url} ${suggested ? 'gets' : 'does not get'} a note suggesting gh`, () => {
+    const notes = [];
+    const run = fakeRun({
+      [GH_DIFF]: notInstalled('gh'),
+      ...openOnOrigin,
+      ...hostedAt(url),
+      [`${GIT} -U3 ${PR('merge')}^1 ${PR('merge')}`]: 'OPEN',
+    });
+    resolveDiff('#12', 3, run, notes);
+    assert.equal(notes.some((n) => n.includes('Install gh')), suggested);
+  });
+}
+
+test('without gh, any one remote on github.com is enough for the note suggesting gh', () => {
+  const notes = [];
+  const run = fakeRun({
+    [GH_DIFF]: notInstalled('gh'),
+    ...openOnOrigin,
+    [REMOTE_URLS]: 'remote.mirror.url https://gitlab.com/acme/demo.git\nremote.origin.url git@github.com:acme/demo.git\n',
+    [`${GIT} -U3 ${PR('merge')}^1 ${PR('merge')}`]: 'OPEN',
+  });
+  resolveDiff('#12', 3, run, notes);
+  assert.match(notes[0], /Install gh/);
 });
 
 test('describeTarget labels a PR generically when gh is unavailable', () => {

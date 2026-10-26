@@ -241,7 +241,9 @@ test('.gitignore is left alone when git already ignores the output path by any p
 // merged: the PR was merged into master with a merge commit, so there is no merge ref.
 // closed: master has moved on, the PR was never merged, and there is no merge ref.
 // Returns a fresh clone which, like any clone, has no refs/pull/* until review-report fetches them.
-function cloneWithPullRequest(state) {
+// Its origin is `url`, which url.<base>.insteadOf points at the bare repository, so review-report
+// sees a hosted remote while git fetches from the local one.
+function cloneWithPullRequest(state, url = 'https://github.com/acme/demo.git') {
   const bare = tempDir('rr-remote-');
   assert.equal(spawnSync('git', ['init', '-q', '--bare', '-b', 'master'], { cwd: bare }).status, 0);
   const work = tempRepo();
@@ -271,6 +273,8 @@ function cloneWithPullRequest(state) {
   const client = tempDir('rr-client-');
   const c = spawnSync('git', ['clone', '-q', bare, client], { encoding: 'utf8' });
   assert.equal(c.status, 0, c.stderr);
+  git(client, 'remote', 'set-url', 'origin', url);
+  git(client, 'config', `url.${bare}.insteadOf`, url);
   return client;
 }
 const withoutGh = { ...process.env, REVIEW_REPORT_WITHOUT: 'gh' };
@@ -311,6 +315,23 @@ test('a PR that no remote has is an error line naming the fix', () => {
   assert.equal(r.status, 1);
   assert.match(r.stderr, /^error: cannot resolve diff for target #99: PR #99 not found on origin\. Install gh, or pass --target <base>\.\.\.<head>\./m);
   assert.match(r.stderr, /^note: gh is not installed; fetched PR #99 with git instead\./m, 'notes survive an error');
+});
+
+// Gitea and Forgejo publish pull requests as GitHub does, but gh cannot read them.
+test('a PR fetched with git from a remote not on github.com brings no note about gh', () => {
+  const client = cloneWithPullRequest('open', 'https://codeberg.org/acme/demo.git');
+  const r = run(['--dump-diff', '--target', '#7'], client, withoutGh);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /^\+two$/m);
+  assert.doesNotMatch(r.stderr, /\bgh\b/);
+});
+
+test('a PR missing from a remote not on github.com is an error line without install advice', () => {
+  const client = cloneWithPullRequest('open', 'https://codeberg.org/acme/demo.git');
+  const r = run(['--dump-diff', '--target', '#99'], client, withoutGh);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /^error: cannot resolve diff for target #99: PR #99 not found on origin\. Pass --target <base>\.\.\.<head>\.$/m);
+  assert.doesNotMatch(r.stderr, /\bgh\b/);
 });
 
 test('--context with a PR read from --diff-file prints no gh note: gh was never asked', () => {
