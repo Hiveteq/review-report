@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync, existsSync, mkdirSync, realpathSync, appendFileSync, rmSync } from 'node:fs';
@@ -24,9 +24,19 @@ function git(dir, ...args) {
   assert.equal(r.status, 0, r.stderr);
   return r.stdout;
 }
+// Every temp directory the tests make, removed once this file's tests have run.
+const tempDirs = [];
+after(() => {
+  for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+});
+// realpath: macOS /var is /private/var; Windows 8.3 short names expand. git reports the real, long path.
+function tempDir(prefix) {
+  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
+  tempDirs.push(dir);
+  return dir;
+}
 function tempRepo() {
-  // realpath: macOS /var is /private/var; Windows 8.3 short names expand. git reports the real, long path.
-  const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'rr-')));
+  const dir = tempDir('rr-');
   spawnSync('git', ['init', '-q', '-b', 'master'], { cwd: dir });
   writeFileSync(join(dir, '.gitignore'), 'node_modules/\n');
   mkdirSync(join(dir, 'sub'));
@@ -161,7 +171,7 @@ test('setup failures print error: lines, not stack traces', () => {
 });
 
 test('outside a repository the error is git\'s own, not advice about master/main', () => {
-  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'rr-norepo-')));
+  const dir = tempDir('rr-norepo-');
   const r = run(['--dump-numbered'], dir, { ...process.env, GIT_CEILING_DIRECTORIES: dir });
   assert.equal(r.status, 1);
   assert.match(r.stderr, /^error: cannot resolve diff for target \(default\): fatal: not a git repository/m);
@@ -232,7 +242,7 @@ test('.gitignore is left alone when git already ignores the output path by any p
 // closed: master has moved on, the PR was never merged, and there is no merge ref.
 // Returns a fresh clone which, like any clone, has no refs/pull/* until review-report fetches them.
 function cloneWithPullRequest(state) {
-  const bare = realpathSync.native(mkdtempSync(join(tmpdir(), 'rr-remote-')));
+  const bare = tempDir('rr-remote-');
   assert.equal(spawnSync('git', ['init', '-q', '--bare', '-b', 'master'], { cwd: bare }).status, 0);
   const work = tempRepo();
   writeFileSync(join(work, 'a.txt'), 'one\n');
@@ -258,7 +268,7 @@ function cloneWithPullRequest(state) {
   } else {
     git(work, 'push', '-q', 'origin', 'master');
   }
-  const client = realpathSync.native(mkdtempSync(join(tmpdir(), 'rr-client-')));
+  const client = tempDir('rr-client-');
   const c = spawnSync('git', ['clone', '-q', bare, client], { encoding: 'utf8' });
   assert.equal(c.status, 0, c.stderr);
   return client;
@@ -266,7 +276,7 @@ function cloneWithPullRequest(state) {
 const withoutGh = { ...process.env, REVIEW_REPORT_WITHOUT: 'gh' };
 
 for (const state of ['open', 'merged', 'closed']) {
-  test(`an ${state} PR is fetched with git when gh is unavailable, with a note suggesting gh`, () => {
+  test(`${state === 'open' ? 'an' : 'a'} ${state} PR is fetched with git when gh is unavailable, with a note suggesting gh`, () => {
     const client = cloneWithPullRequest(state);
     const r = run(['--dump-diff', '--target', '#7'], client, withoutGh);
     assert.equal(r.status, 0, r.stderr);
