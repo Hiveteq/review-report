@@ -27,6 +27,9 @@ export function parseTarget(target) {
   if (target === '--working') return { kind: 'working' };
   const pr = prNumber(target);
   if (pr) return { kind: 'pr', pr };
+  // `<branch>...#123`: a pull request compared with the branch it targets, which git alone cannot tell.
+  const based = /^(.+)\.\.\.#(\d+)$/.exec(target);
+  if (based) return { kind: 'pr', pr: based[2], base: based[1] };
   // `A..B` or `A...B`. git reads a missing side as HEAD, so `A..` is A..HEAD.
   const m = /^(.*?)\.{2,3}(.*)$/.exec(target);
   if (m) return { kind: 'range', base: m[1] || 'HEAD', head: m[2] || 'HEAD' };
@@ -40,7 +43,7 @@ export function resolveDiff(target, context, run = defaultRun, notes = []) {
     case 'default': return run('git', [...git, `${defaultBase(run)}...HEAD`]);
     case 'staged': return run('git', [...git, '--cached']);
     case 'working': return run('git', [...git, 'HEAD']);
-    case 'pr': return resolvePr(t.pr, context, run, notes);
+    case 'pr': return resolvePr(t, context, run, notes);
     case 'range': return run('git', [...git, target]);
     // A single revision means the change that commit introduced, as describeTarget labels it.
     default: return run('git', [...git, parentOf(t.ref, run), t.ref]);
@@ -60,9 +63,11 @@ export function describeTarget(target, run = defaultRun) {
     case 'pr': {
       try {
         const info = JSON.parse(run('gh', ['pr', 'view', t.pr, '--json', 'baseRefName,headRefName']));
-        return { base: info.baseRefName, head: info.headRefName, label: `PR #${t.pr} (${info.headRefName} vs ${info.baseRefName})` };
+        const base = t.base ?? info.baseRefName;
+        return { base, head: info.headRefName, label: `PR #${t.pr} (${info.headRefName} vs ${base})` };
       } catch {
         // Without gh the branch names are unknown: git only has the PR's refs.
+        if (t.base) return { base: t.base, head: `PR #${t.pr}`, label: `PR #${t.pr} vs ${t.base}` };
         return { base: 'PR base', head: `PR #${t.pr}`, label: `PR #${t.pr}` };
       }
     }
@@ -97,42 +102,72 @@ export function firstLine(e) {
   return text.split('\n').filter(Boolean)[0] ?? 'unknown error';
 }
 
-// Pull requests (`#123`). gh is preferred: it knows the PR's branch names and handles any PR
-// state. When gh is missing or fails (not installed, not logged in), the PR is fetched with
-// plain git: GitHub publishes every PR as refs/pull/<n>/head, and as refs/pull/<n>/merge while
-// it is open and mergeable. Fetched refs go under refs/review-report/, so the user's branches
-// and tags are never touched, and a repeat run overwrites them.
+// Pull requests: `#123`, or `<branch>...#123` to name the branch it targets.
+// gh is preferred. It knows the PR's base and handles any PR state.
+// Without gh, plain git fetches the PR. So does a failing gh: not logged in, or a diff too large to send.
+// GitHub publishes every PR as refs/pull/<n>/head.
+// While a PR is open and mergeable, GitHub also publishes refs/pull/<n>/merge.
+// Fetched refs go under refs/review-report/, so the user's branches and tags stay untouched.
+// A repeat run overwrites them.
 const prRef = (pr, kind) => `refs/review-report/pr/${pr}/${kind}`;
 
-function resolvePr(pr, context, run, notes) {
-  let suggestGh = false;
-  try {
-    const diff = run('gh', ['pr', 'diff', pr, '--color', 'never']);
+function resolvePr({ pr, base }, context, run, notes) {
+  const gh = base ? { base, suggestGh: false } : tryGh(pr, run, notes);
+  if (gh.diff !== undefined) {
     if (context !== 3) notes.push('--context is ignored when gh fetches the pull request; use <base>...<head> for wider context');
-    return diff;
+    return gh.diff;
+  }
+  const advice = gh.suggestGh ? 'Install gh, or pass' : 'Pass';
+  const remote = prRemote(pr, run, notes);
+  const refs = fetchPr(pr, remote, run);
+  if (!refs) throw new Error(`PR #${pr} not found on ${remote}. ${advice} --target <base>...<head>.`);
+  const range = prRange({ pr, remote, base: gh.base, advice, ...refs }, run);
+  return run('git', [...DIFF_FORMAT, `-U${context}`, ...range]);
+}
+
+// Returns gh's diff of the PR, or what is known without it.
+// Without a diff, it says whether installing gh would help.
+// gh may run but fail to send the diff; GitHub refuses diffs over 300 files, for example.
+// Then gh pr view may still name the base branch.
+function tryGh(pr, run, notes) {
+  try {
+    return { diff: run('gh', ['pr', 'diff', pr, '--color', 'never']) };
   } catch (e) {
-    const ghMissing = e.code === 'ENOENT';
-    suggestGh = ghMissing && hasGitHubRemote(run);
+    if (e.code !== 'ENOENT') {
+      notes.push(`gh could not fetch it (${firstLine(e)}); fetched PR #${pr} with git instead.`);
+      return { suggestGh: false, base: ghBase(pr, run) };
+    }
+    const suggestGh = hasGitHubRemote(run);
     const benefit = 'for exact branch names in the report header and the PR description for Claude to read';
     if (suggestGh) notes.push(`gh is not installed; fetched PR #${pr} with git instead. Install gh (https://cli.github.com) ${benefit}.`);
-    else if (!ghMissing) notes.push(`gh could not fetch it (${firstLine(e)}); fetched PR #${pr} with git instead.`);
+    return { suggestGh };
   }
-  const fetched = fetchPr(pr, run, suggestGh);
-  return run('git', [...DIFF_FORMAT, `-U${context}`, ...prRange(pr, fetched, run, notes)]);
+}
+
+function ghBase(pr, run) {
+  try {
+    return JSON.parse(run('gh', ['pr', 'view', pr, '--json', 'baseRefName'])).baseRefName ?? null;
+  } catch {
+    // gh cannot view the PR either (not logged in, offline): git has to find the base.
+    return null;
+  }
 }
 
 // Installing gh helps only where gh works, so the advice needs a remote on github.com. The URLs
 // are read as configured, before url.<base>.insteadOf rewrites them. GitHub Enterprise hosts are
 // not recognised, so their users get no install advice.
 function hasGitHubRemote(run) {
-  let listing = '';
+  return configLines(run, '^remote\\..*\\.url$').some((line) => urlHost(line.split(' ')[1] ?? '') === 'github.com');
+}
+
+// `git config --get-regexp` output as lines; it exits 1 when nothing matches.
+function configLines(run, pattern) {
   try {
-    listing = run('git', ['config', '--get-regexp', '^remote\\..*\\.url$']);
+    return run('git', ['config', '--get-regexp', pattern]).split('\n').filter(Boolean);
   } catch (e) {
-    // `git config --get-regexp` exits 1 when nothing matches: no remote has a URL.
     if (e.status !== 1) throw e;
+    return [];
   }
-  return listing.split('\n').some((line) => urlHost(line.split(' ')[1] ?? '') === 'github.com');
 }
 
 // The host of a remote URL: a URL with a scheme (https://, ssh://), or scp-like `user@host:path`.
@@ -142,57 +177,104 @@ function urlHost(url) {
   return /^(?:[^@/]+@)?([^:/]+):/.exec(url)?.[1].toLowerCase() ?? '';
 }
 
-// Fetches PR <pr> from the first remote that has it: upstream first (fork workflows), then
-// origin, then any other remote. `ls-remote` says which of the PR's refs exist: its output is
-// data, unlike git's error messages, which are translated into the user's language.
-function fetchPr(pr, run, suggestGh) {
+// Picks the one remote gh would ask.
+// That is the remote `gh repo set-default` marked (remote.<name>.gh-resolved).
+// Otherwise it is upstream, github or origin, in that order, else the first remote.
+// A PR number belongs to one repository.
+// Another remote's PR with the same number is a different change, so no other remote is asked.
+function prRemote(pr, run, notes) {
   const names = run('git', ['remote']).split('\n').map((s) => s.trim()).filter(Boolean);
-  const first = ['upstream', 'origin'].filter((n) => names.includes(n));
-  const remotes = [...first, ...names.filter((n) => !first.includes(n))];
-  const fix = suggestGh ? 'Install gh, or pass --target <base>...<head>.' : 'Pass --target <base>...<head>.';
-  if (!remotes.length) throw new Error(`PR #${pr} cannot be fetched: this repository has no remotes. Pass --target <base>...<head>.`);
-  for (const remote of remotes) {
-    const listing = run('git', ['ls-remote', remote, `refs/pull/${pr}/head`, `refs/pull/${pr}/merge`]);
-    const kinds = ['head', 'merge'].filter((k) => listing.includes(`\trefs/pull/${pr}/${k}`));
-    if (!kinds.includes('head')) continue;
-    fetchRefs(remote, kinds.map((k) => [`refs/pull/${pr}/${k}`, prRef(pr, k)]), run);
-    return { remote, head: prRef(pr, 'head'), merge: kinds.includes('merge') ? prRef(pr, 'merge') : null };
-  }
-  throw new Error(`PR #${pr} not found on ${remotes.join(', ')}. ${fix}`);
+  if (!names.length) throw new Error(`PR #${pr} cannot be fetched: this repository has no remotes. Pass --target <base>...<head>.`);
+  const marked = configLines(run, '^remote\\..*\\.gh-resolved$').map((line) => /^remote\.(.+)\.gh-resolved /.exec(line)?.[1]);
+  const remote = marked.find((n) => names.includes(n))
+    ?? ['upstream', 'github', 'origin'].find((n) => names.includes(n))
+    ?? names[0];
+  if (names.length > 1) notes.push(`fetched PR #${pr} from ${remote}, the remote gh would ask among ${names.join(', ')}.`);
+  return remote;
 }
 
-// One fetch for [remote ref, local ref] pairs. --refmap= stops git from also moving the user's
-// remote-tracking branches; --no-tags keeps their tags as they are.
+// Fetches PR <pr>'s refs from `remote`, or returns null when it has no such PR.
+// `ls-remote` says which refs exist. Its output is data; git's error messages are translated.
+function fetchPr(pr, remote, run) {
+  const listing = run('git', ['ls-remote', remote, `refs/pull/${pr}/head`, `refs/pull/${pr}/merge`]);
+  const kinds = ['head', 'merge'].filter((k) => listing.includes(`\trefs/pull/${pr}/${k}`));
+  if (!kinds.includes('head')) return null;
+  fetchRefs(remote, kinds.map((k) => [`refs/pull/${pr}/${k}`, prRef(pr, k)]), run);
+  return { head: prRef(pr, 'head'), merge: kinds.includes('merge') ? prRef(pr, 'merge') : null };
+}
+
+// One fetch for [remote ref, local ref] pairs.
+// --refmap= stops git from also moving the user's remote-tracking branches.
+// --no-tags leaves their tags as they are.
+// --no-recurse-submodules keeps the fetch out of submodules.
+// A submodule's remote may lack a commit the PR points to, or be unreachable.
 function fetchRefs(remote, pairs, run) {
-  run('git', ['fetch', '--quiet', '--no-tags', '--refmap=', remote, ...pairs.map(([from, to]) => `+${from}:${to}`)]);
+  run('git', ['fetch', '--quiet', '--no-tags', '--no-recurse-submodules', '--refmap=', remote,
+    ...pairs.map(([from, to]) => `+${from}:${to}`)]);
 }
 
-// The git diff arguments for what the PR adds. An open PR's merge ref has the base branch tip as
-// its first parent and the PR head as its second. GitHub refreshes it lazily and not at all while
-// the PR conflicts, so it is trusted only when its second parent is the current head; a stale one
-// still names the base, and the head is compared with it. Without a merge ref (merged or closed),
-// the PR is compared with the remote's default branch, and a note says so. A PR merged with a
-// merge commit is already inside that branch, so its base is that branch just before the merge.
-function prRange(pr, { remote, head, merge }, run, notes) {
-  if (merge) {
-    const [prSide, current] = run('git', ['rev-parse', `${merge}^2`, head]).split('\n').map((s) => s.trim());
-    return prSide === current ? [`${merge}^1`, merge] : [`${merge}^1...${head}`];
-  }
-  const { ref: base, name } = fetchDefaultBranch(pr, remote, run);
-  const otherBase = `pass --target ${remote}/<branch>...${head}`;
-  notes.push(`compared PR #${pr} with ${remote}'s default branch (${name}). If it targets another branch, ${otherBase}`);
-  if (!isAncestor(head, base, run)) return [`${base}...${head}`];
-  const mergedBy = run('git', ['rev-list', '--first-parent', '--ancestry-path', '--reverse', `${head}..${base}`])
+// The git diff arguments for what the PR adds, as gh shows it.
+// That is the head against the base it branched from, three-dot.
+// A base named by the user or by gh is used as given.
+// Otherwise git works the base out where it can prove it.
+// Where it cannot, the error says how to name the base.
+function prRange(p, run) {
+  if (p.base) return againstBase(p, fetchBranch(p, p.base, run), run).range;
+  return p.merge ? openRange(p, run) : rangeWithoutMergeRef(p, run);
+}
+
+// An open PR's merge ref is GitHub's test merge.
+// Its first parent is the base tip at that time; its second parent is the PR head.
+// GitHub refreshes it lazily, and never while the PR conflicts.
+// A stale merge ref still gives the right base, unless the head has since taken in newer base commits.
+// A rebase or "Update branch" does that. Then the diff needs the current base tip.
+// git can confirm that tip only for the default branch.
+function openRange(p, run) {
+  const { pr, remote, head, merge, advice } = p;
+  const baseSide = `${merge}^1`;
+  const [prSide, current] = run('git', ['rev-parse', `${merge}^2`, head]).split('\n').map((s) => s.trim());
+  if (prSide === current || !isAncestor(baseSide, head, run)) return [`${baseSide}...${head}`];
+  const branch = fetchDefaultBranch(p, run);
+  if (isAncestor(baseSide, branch.ref, run)) return [`${branch.ref}...${head}`];
+  const why = `its merge ref on ${remote} is out of date and its base is not ${branch.label}`;
+  throw new Error(`cannot tell which branch PR #${pr} targets: ${why}. ${advice} --target <branch>...#${pr}.`);
+}
+
+// A merged or closed PR has no merge ref.
+// Its base is known only when it was merged into the default branch.
+// Then a merge commit there has the PR head as its second parent.
+function rangeWithoutMergeRef(p, run) {
+  const branch = fetchDefaultBranch(p, run);
+  const { range, merged } = againstBase(p, branch, run);
+  if (merged) return range;
+  const why = `it has no merge ref on ${p.remote} and was not merged into ${branch.label}`;
+  throw new Error(`cannot tell which branch PR #${p.pr} targets: ${why}. ${p.advice} --target <branch>...#${p.pr}.`);
+}
+
+// The range for the PR against `branch`, a fetched base.
+// A PR merged into the branch is already inside it.
+// So the PR is compared with the branch just before the merge.
+// `merged` is true when that merge commit's second parent is the PR head.
+// That proves the PR was merged into this branch.
+function againstBase({ pr, head }, branch, run) {
+  if (!isAncestor(head, branch.ref, run)) return { range: [`${branch.ref}...${head}`], merged: false };
+  const mergedBy = run('git', ['rev-list', '--first-parent', '--ancestry-path', '--reverse', `${head}..${branch.ref}`])
     .split('\n')[0].trim();
-  if (!mergedBy) throw new Error(`PR #${pr} adds nothing beyond ${remote}'s default branch. Pass --target <base>...<head>.`);
-  return [`${mergedBy}^1...${head}`];
+  if (!mergedBy) throw new Error(`PR #${pr} adds nothing beyond ${branch.label}. Pass --target <base>...<head>.`);
+  // `X^@` lists X's parents; the head's own hash follows them.
+  const shas = run('git', ['rev-parse', `${mergedBy}^@`, head]).split('\n').map((s) => s.trim()).filter(Boolean);
+  return { range: [`${mergedBy}^1...${head}`], merged: shas.length > 2 && shas[1] === shas.at(-1) };
 }
 
-function fetchDefaultBranch(pr, remote, run) {
-  const m = /^ref: refs\/heads\/(\S+)\s+HEAD$/m.exec(run('git', ['ls-remote', '--symref', remote, 'HEAD']));
-  if (!m) throw new Error(`cannot tell ${remote}'s default branch. Pass --target <base>...<head>.`);
-  fetchRefs(remote, [[`refs/heads/${m[1]}`, prRef(pr, 'base')]], run);
-  return { ref: prRef(pr, 'base'), name: m[1] };
+function fetchDefaultBranch(p, run) {
+  const m = /^ref: refs\/heads\/(\S+)\s+HEAD$/m.exec(run('git', ['ls-remote', '--symref', p.remote, 'HEAD']));
+  if (!m) throw new Error(`cannot tell ${p.remote}'s default branch. Pass --target <branch>...#${p.pr}.`);
+  return { ...fetchBranch(p, m[1], run), label: `${p.remote}'s default branch (${m[1]})` };
+}
+
+function fetchBranch({ pr, remote }, name, run) {
+  fetchRefs(remote, [[`refs/heads/${name}`, prRef(pr, 'base')]], run);
+  return { ref: prRef(pr, 'base'), label: `${remote}/${name}` };
 }
 
 // `merge-base --is-ancestor` exits 1 for "no"; any other failure propagates.

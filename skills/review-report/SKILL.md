@@ -15,7 +15,8 @@ diff text. `$SKILL` is `${CLAUDE_SKILL_DIR}`; contract, conventions and errors a
 
 1. **Dump:** `node $SKILL/render.mjs --dump-numbered [--target <spec>]`. Anchors come from its `old`/`new`
    columns, never from counting or Read-tool line numbers. Targets: none (vs master/main), `#123` (gh when
-   installed, otherwise git; tell the user any `note:` line once), `A..B`, `<commit>`, `--staged`, `--working`.
+   installed, otherwise git; tell the user any `note:` line once), `<branch>...#123` (that PR against its base
+   branch, when an `error:` line says git cannot tell it), `A..B`, `<commit>`, `--staged`, `--working`.
 2. **Read surrounding code** where the diff does not explain intent. For a pull request, also read its
    description when gh is available (`gh pr view <n>`).
 3. **Write the story** to the scratchpad.

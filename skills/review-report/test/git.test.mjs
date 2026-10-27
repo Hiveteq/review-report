@@ -125,13 +125,23 @@ const PR = (kind) => `refs/review-report/pr/12/${kind}`;
 // Which of the PR's refs a remote has, as `git ls-remote` prints them. Empty output means neither.
 const lsRemote = (remote) => `git ls-remote ${remote} refs/pull/12/head refs/pull/12/merge`;
 const listed = (...kinds) => kinds.map((k) => `${k === 'head' ? 'h1' : 'm1'}\trefs/pull/12/${k}\n`).join('');
-// One fetch for the refs the remote has. --refmap= keeps it from moving remote-tracking branches.
-const fetchPrRefs = (remote, ...kinds) => ['git fetch --quiet --no-tags --refmap=', remote,
-  ...kinds.map((k) => `+refs/pull/12/${k}:${PR(k)}`)].join(' ');
+// --refmap= keeps a fetch from moving remote-tracking branches; --no-recurse-submodules keeps it out of submodules.
+const FETCH = 'git fetch --quiet --no-tags --no-recurse-submodules --refmap=';
+// One fetch for the refs the remote has.
+const fetchPrRefs = (remote, ...kinds) => [FETCH, remote, ...kinds.map((k) => `+refs/pull/12/${k}:${PR(k)}`)].join(' ');
+// The branch the PR is compared with, fetched from the PR's remote.
+const fetchBase = (remote, branch) => `${FETCH} ${remote} +refs/heads/${branch}:${PR('base')}`;
 const GH_DIFF = 'gh pr diff 12 --color never';
+const GH_BASE = 'gh pr view 12 --json baseRefName';
+const ancestry = (a, b) => `git merge-base --is-ancestor ${a} ${b}`;
+// What gh shows for a PR: the head against the base it branched from, three-dot.
+const prDiff = (base, context = 3) => `${GIT} -U${context} ${base}...${PR('head')}`;
+const MERGE_BASE_SIDE = `${PR('merge')}^1`;
 // The repository's remote URLs as git config stores them, read to decide whether gh would help.
 const REMOTE_URLS = 'git config --get-regexp ^remote\\..*\\.url$';
-const hostedAt = (url) => ({ [REMOTE_URLS]: `remote.origin.url ${url}\n` });
+// Remotes marked by `gh repo set-default`, read to pick the remote gh would ask. Exit 1: none.
+const MARKED = 'git config --get-regexp ^remote\\..*\\.gh-resolved$';
+const hostedAt = (url) => ({ [REMOTE_URLS]: `remote.origin.url ${url}\n`, [MARKED]: exit(1) });
 const onGitHub = hostedAt('https://github.com/acme/demo.git');
 // An open PR on origin whose merge ref is current: its second parent is the PR head.
 const openOnOrigin = {
@@ -141,15 +151,29 @@ const openOnOrigin = {
   [fetchPrRefs('origin', 'head', 'merge')]: '',
   [`git rev-parse ${PR('merge')}^2 ${PR('head')}`]: 'h1\nh1\n',
 };
-// A PR on origin with no merge ref (merged or closed), origin's default branch being main.
+// The same PR after its head moved: GitHub has not recomputed the merge ref yet.
+const staleOnOrigin = { ...openOnOrigin, [`git rev-parse ${PR('merge')}^2 ${PR('head')}`]: 'old\nnew\n' };
+// origin's default branch, main, fetched as the PR's base.
+const defaultBranch = {
+  'git ls-remote --symref origin HEAD': 'ref: refs/heads/main\tHEAD\nabc123\tHEAD\n',
+  [fetchBase('origin', 'main')]: '',
+};
+// A PR on origin with no merge ref (merged or closed).
 const closedOnOrigin = {
   ...onGitHub,
   'git remote': 'origin\n',
   [lsRemote('origin')]: listed('head'),
   [fetchPrRefs('origin', 'head')]: '',
-  'git ls-remote --symref origin HEAD': 'ref: refs/heads/main\tHEAD\nabc123\tHEAD\n',
-  [`git fetch --quiet --no-tags --refmap= origin +refs/heads/main:${PR('base')}`]: '',
+  ...defaultBranch,
 };
+// A PR whose head is on main: the first commit on main's first-parent line after it has `parents`.
+const mergedIntoMain = (parents) => ({
+  ...closedOnOrigin,
+  [ancestry(PR('head'), PR('base'))]: '',
+  [`git rev-list --first-parent --ancestry-path --reverse ${PR('head')}..${PR('base')}`]: 'm1\nm2\n',
+  [`git rev-parse m1^@ ${PR('head')}`]: `${parents.join('\n')}\nh1\n`,
+});
+const baseUnknown = (why) => new RegExp(`^Error: cannot tell which branch PR #12 targets: ${why}\\. Install gh, or pass --target <branch>\\.\\.\\.#12\\.$`);
 
 test('with gh, a PR uses gh pr diff and adds no note at the default context', () => {
   const notes = [];
@@ -165,71 +189,115 @@ test('with gh, --context other than 3 adds a note that gh ignores it', () => {
   assert.match(notes[0], /--context is ignored when gh fetches the pull request/);
 });
 
-test('without gh, an open PR is diffed from its merge ref against the first parent', () => {
+test('without gh, an open PR is diffed three-dot from its merge ref\'s base side, as gh diffs it', () => {
   const notes = [];
-  const run = fakeRun({ [GH_DIFF]: notInstalled('gh'), ...openOnOrigin, [`${GIT} -U5 ${PR('merge')}^1 ${PR('merge')}`]: 'OPEN' });
+  const run = fakeRun({ [GH_DIFF]: notInstalled('gh'), ...openOnOrigin, [prDiff(MERGE_BASE_SIDE, 5)]: 'OPEN' });
   assert.equal(resolveDiff('#12', 5, run, notes), 'OPEN');
   assert.match(notes[0], /^gh is not installed; fetched PR #12 with git instead\. Install gh \(https:\/\/cli\.github\.com\)/);
 });
 
 test('gh that fails for another reason falls back to git; the note gives gh\'s reason, not install advice', () => {
   const notes = [];
-  const run = fakeRun({
-    [GH_DIFF]: failed(4, 'To get started with GitHub CLI, please run:  gh auth login\n'),
-    ...openOnOrigin,
-    [`${GIT} -U3 ${PR('merge')}^1 ${PR('merge')}`]: 'OPEN',
-  });
+  const loggedOut = failed(4, 'To get started with GitHub CLI, please run:  gh auth login\n');
+  const run = fakeRun({ [GH_DIFF]: loggedOut, [GH_BASE]: loggedOut, ...openOnOrigin, [prDiff(MERGE_BASE_SIDE)]: 'OPEN' });
   assert.equal(resolveDiff('#12', 3, run, notes), 'OPEN');
   assert.match(notes[0], /^gh could not fetch it \(To get started with GitHub CLI, please run:  gh auth login\); fetched PR #12 with git instead\.$/);
 });
 
-test('which refs exist is read from ls-remote, never from git\'s (translated) error text', () => {
-  // A remote without the PR prints nothing; no fetch is attempted there, so no message is parsed.
+test('gh that can view but not diff the PR names the base, and the PR is compared with that branch', () => {
+  const run = fakeRun({
+    [GH_DIFF]: failed(1, 'HTTP 406: Sorry, the diff exceeded the maximum number of files (300).\n'),
+    [GH_BASE]: '{"baseRefName":"develop"}\n',
+    ...openOnOrigin,
+    [fetchBase('origin', 'develop')]: '',
+    [ancestry(PR('head'), PR('base'))]: exit(1),
+    [prDiff(PR('base'))]: 'AGAINST DEVELOP',
+  });
+  assert.equal(resolveDiff('#12', 3, run, []), 'AGAINST DEVELOP');
+});
+
+test('<branch>...#N compares the PR with that branch from the PR\'s remote, without asking gh', () => {
+  const run = fakeRun({
+    ...openOnOrigin,
+    [fetchBase('origin', 'develop')]: '',
+    [ancestry(PR('head'), PR('base'))]: exit(1),
+    [prDiff(PR('base'))]: 'AGAINST DEVELOP',
+  });
+  assert.equal(resolveDiff('develop...#12', 3, run, []), 'AGAINST DEVELOP');
+  assert.deepEqual(run.calls.filter((c) => c.startsWith('gh ')), []);
+});
+
+test('only the remote gh would ask is searched: upstream before origin, and a PR missing there is not sought elsewhere', () => {
+  // ls-remote output is data; git's error messages are translated into the user's language.
+  const run = fakeRun({ [GH_DIFF]: notInstalled('gh'), ...openOnOrigin, 'git remote': 'origin\nupstream\n', [lsRemote('upstream')]: '' });
+  assert.throws(() => resolveDiff('#12', 3, run, []), /^Error: PR #12 not found on upstream\. Install gh, or pass --target <base>\.\.\.<head>\.$/);
+  assert.deepEqual(run.calls.filter((c) => c.startsWith('git ls-remote')), [lsRemote('upstream')]);
+});
+
+test('a remote marked by gh repo set-default is searched instead of upstream, and a note names it', () => {
+  const notes = [];
   const run = fakeRun({
     [GH_DIFF]: notInstalled('gh'),
     ...openOnOrigin,
-    'git remote': 'origin\nupstream\n',
-    [lsRemote('upstream')]: '',
-    [`${GIT} -U3 ${PR('merge')}^1 ${PR('merge')}`]: 'OPEN',
+    'git remote': 'my.fork\norigin\nupstream\n',
+    [MARKED]: 'remote.my.fork.gh-resolved base\n',
+    [lsRemote('my.fork')]: listed('head', 'merge'),
+    [fetchPrRefs('my.fork', 'head', 'merge')]: '',
+    [prDiff(MERGE_BASE_SIDE)]: 'FORK',
+  });
+  assert.equal(resolveDiff('#12', 3, run, notes), 'FORK');
+  assert.equal(notes[1], 'fetched PR #12 from my.fork, the remote gh would ask among my.fork, origin, upstream.');
+});
+
+test('a stale merge ref is still diffed from its base side when the head has not taken in newer base commits', () => {
+  const run = fakeRun({
+    [GH_DIFF]: notInstalled('gh'),
+    ...staleOnOrigin,
+    [ancestry(MERGE_BASE_SIDE, PR('head'))]: exit(1),
+    [prDiff(MERGE_BASE_SIDE)]: 'OPEN',
   });
   assert.equal(resolveDiff('#12', 3, run, []), 'OPEN');
-  assert.deepEqual(run.calls.filter((c) => c.startsWith('git ls-remote')), [lsRemote('upstream'), lsRemote('origin')], 'upstream first');
-  assert.ok(!run.calls.some((c) => c.startsWith('git fetch') && c.includes(' upstream ')), 'nothing fetched from a remote without the PR');
 });
 
-test('a stale merge ref (its PR side is not the current head) is not trusted', () => {
-  const notes = [];
+test('a stale merge ref whose head took in newer base commits is diffed against the current default branch', () => {
   const run = fakeRun({
     [GH_DIFF]: notInstalled('gh'),
-    ...openOnOrigin,
-    [`git rev-parse ${PR('merge')}^2 ${PR('head')}`]: 'old\nnew\n',
-    [`${GIT} -U3 ${PR('merge')}^1...${PR('head')}`]: 'CURRENT',
+    ...staleOnOrigin,
+    ...defaultBranch,
+    [ancestry(MERGE_BASE_SIDE, PR('head'))]: '',
+    [ancestry(MERGE_BASE_SIDE, PR('base'))]: '',
+    [prDiff(PR('base'))]: 'CURRENT',
   });
-  assert.equal(resolveDiff('#12', 3, run, notes), 'CURRENT');
+  assert.equal(resolveDiff('#12', 3, run, []), 'CURRENT');
 });
 
-test('a PR without a merge ref is compared with the default branch, and a note names it and the way out', () => {
-  const notes = [];
+test('a stale merge ref whose base is not on the default branch is an error naming <branch>...#N', () => {
   const run = fakeRun({
     [GH_DIFF]: notInstalled('gh'),
-    ...closedOnOrigin,
-    [`git merge-base --is-ancestor ${PR('head')} ${PR('base')}`]: exit(1),
-    [`${GIT} -U3 ${PR('base')}...${PR('head')}`]: 'CLOSED',
+    ...staleOnOrigin,
+    ...defaultBranch,
+    [ancestry(MERGE_BASE_SIDE, PR('head'))]: '',
+    [ancestry(MERGE_BASE_SIDE, PR('base'))]: exit(1),
   });
-  assert.equal(resolveDiff('#12', 3, run, notes), 'CLOSED');
-  const otherBase = `pass --target origin/<branch>...${PR('head')}`;
-  assert.equal(notes[1], `compared PR #12 with origin's default branch (main). If it targets another branch, ${otherBase}`);
+  assert.throws(() => resolveDiff('#12', 3, run, []),
+    baseUnknown('its merge ref on origin is out of date and its base is not origin\'s default branch \\(main\\)'));
 });
 
-test('a PR merged with a merge commit is diffed from the default branch just before that merge', () => {
-  const run = fakeRun({
-    [GH_DIFF]: notInstalled('gh'),
-    ...closedOnOrigin,
-    [`git merge-base --is-ancestor ${PR('head')} ${PR('base')}`]: '',
-    [`git rev-list --first-parent --ancestry-path --reverse ${PR('head')}..${PR('base')}`]: 'm1\nm2\n',
-    [`${GIT} -U3 m1^1...${PR('head')}`]: 'MERGED',
-  });
+test('a PR without a merge ref and not merged into the default branch is an error naming <branch>...#N', () => {
+  const run = fakeRun({ [GH_DIFF]: notInstalled('gh'), ...closedOnOrigin, [ancestry(PR('head'), PR('base'))]: exit(1) });
+  assert.throws(() => resolveDiff('#12', 3, run, []),
+    baseUnknown('it has no merge ref on origin and was not merged into origin\'s default branch \\(main\\)'));
+});
+
+test('a PR merged into the default branch with a merge commit is diffed from that branch just before the merge', () => {
+  const run = fakeRun({ [GH_DIFF]: notInstalled('gh'), ...mergedIntoMain(['b1', 'h1']), [prDiff('m1^1')]: 'MERGED' });
   assert.equal(resolveDiff('#12', 3, run, []), 'MERGED');
+});
+
+test('a PR that reached the default branch through another branch\'s merge is an error naming <branch>...#N', () => {
+  const run = fakeRun({ [GH_DIFF]: notInstalled('gh'), ...mergedIntoMain(['b1', 'd1']) });
+  assert.throws(() => resolveDiff('#12', 3, run, []),
+    baseUnknown('it has no merge ref on origin and was not merged into origin\'s default branch \\(main\\)'));
 });
 
 test('a network failure surfaces git\'s own message', () => {
@@ -241,7 +309,8 @@ test('a network failure surfaces git\'s own message', () => {
 test('a PR on no remote, and a repository with no remotes, give errors naming the fix', () => {
   const absent = fakeRun({ [GH_DIFF]: notInstalled('gh'), ...onGitHub, 'git remote': 'origin\n', [lsRemote('origin')]: '' });
   assert.throws(() => resolveDiff('#12', 3, absent, []), /^Error: PR #12 not found on origin\. Install gh, or pass --target <base>\.\.\.<head>\.$/);
-  const ghFailed = fakeRun({ [GH_DIFF]: failed(1, 'not found\n'), 'git remote': 'origin\n', [lsRemote('origin')]: '' });
+  const notFound = failed(1, 'not found\n');
+  const ghFailed = fakeRun({ [GH_DIFF]: notFound, [GH_BASE]: notFound, [MARKED]: exit(1), 'git remote': 'origin\n', [lsRemote('origin')]: '' });
   assert.throws(() => resolveDiff('#12', 3, ghFailed, []), /^Error: PR #12 not found on origin\. Pass --target <base>\.\.\.<head>\.$/,
     'no install advice when gh is installed');
   const none = fakeRun({ [GH_DIFF]: notInstalled('gh'), [REMOTE_URLS]: exit(1), 'git remote': '' });
@@ -254,7 +323,7 @@ test('without gh, a repository with no remote on github.com gets no note suggest
     [GH_DIFF]: notInstalled('gh'),
     ...openOnOrigin,
     ...hostedAt('https://gitlab.com/acme/demo.git'),
-    [`${GIT} -U3 ${PR('merge')}^1 ${PR('merge')}`]: 'OPEN',
+    [prDiff(MERGE_BASE_SIDE)]: 'OPEN',
   });
   assert.equal(resolveDiff('#12', 3, run, notes), 'OPEN');
   assert.deepEqual(notes, []);
@@ -287,7 +356,7 @@ for (const [url, suggested] of [
       [GH_DIFF]: notInstalled('gh'),
       ...openOnOrigin,
       ...hostedAt(url),
-      [`${GIT} -U3 ${PR('merge')}^1 ${PR('merge')}`]: 'OPEN',
+      [prDiff(MERGE_BASE_SIDE)]: 'OPEN',
     });
     resolveDiff('#12', 3, run, notes);
     assert.equal(notes.some((n) => n.includes('Install gh')), suggested);
@@ -300,7 +369,7 @@ test('without gh, any one remote on github.com is enough for the note suggesting
     [GH_DIFF]: notInstalled('gh'),
     ...openOnOrigin,
     [REMOTE_URLS]: 'remote.mirror.url https://gitlab.com/acme/demo.git\nremote.origin.url git@github.com:acme/demo.git\n',
-    [`${GIT} -U3 ${PR('merge')}^1 ${PR('merge')}`]: 'OPEN',
+    [prDiff(MERGE_BASE_SIDE)]: 'OPEN',
   });
   resolveDiff('#12', 3, run, notes);
   assert.match(notes[0], /Install gh/);
@@ -309,6 +378,17 @@ test('without gh, any one remote on github.com is enough for the note suggesting
 test('describeTarget labels a PR generically when gh is unavailable', () => {
   const run = fakeRun({ 'gh pr view 12 --json baseRefName,headRefName': notInstalled('gh') });
   assert.deepEqual(describeTarget('#12', run), { base: 'PR base', head: 'PR #12', label: 'PR #12' });
+});
+
+test('parseTarget reads <branch>...#N as a pull request compared with that branch', () => {
+  assert.deepEqual(parseTarget('release/2.x...#12'), { kind: 'pr', pr: '12', base: 'release/2.x' });
+});
+
+test('describeTarget labels a PR with the base named in <branch>...#N, with gh or without', () => {
+  const withGh = fakeRun({ 'gh pr view 12 --json baseRefName,headRefName': '{"baseRefName":"main","headRefName":"feature"}' });
+  assert.deepEqual(describeTarget('develop...#12', withGh), { base: 'develop', head: 'feature', label: 'PR #12 (feature vs develop)' });
+  const withoutGh = fakeRun({ 'gh pr view 12 --json baseRefName,headRefName': notInstalled('gh') });
+  assert.deepEqual(describeTarget('develop...#12', withoutGh), { base: 'develop', head: 'PR #12', label: 'PR #12 vs develop' });
 });
 
 test('withoutTools makes the listed commands look not installed and passes others through', () => {

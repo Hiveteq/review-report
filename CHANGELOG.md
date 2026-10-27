@@ -6,6 +6,8 @@
 - Pull requests no longer need the GitHub CLI. Without `gh` (or when it is not logged in), the script fetches
   the pull request with git. For a repository on github.com, a note suggests gh for real branch names and the
   PR description. `--context` now works for pull requests fetched this way.
+- `<branch>...#123` compares a pull request with the branch it targets. Without gh, git cannot always tell
+  that branch, mostly for merged or closed pull requests. The script then stops and asks for it.
 
 ## 0.1.2
 

@@ -63,16 +63,18 @@ and `git`.
 ## Targets
 
 ```
-/review-report:review-report            # current branch against main or master
-/review-report:review-report #123       # a pull request
-/review-report:review-report v1..v2     # any git range
-/review-report:review-report abc123     # one commit
-/review-report:review-report --staged   # staged changes; --working for the working tree
+/review-report:review-report               # current branch against main or master
+/review-report:review-report #123          # a pull request
+/review-report:review-report main...#123   # a pull request against the branch it targets
+/review-report:review-report v1..v2        # any git range
+/review-report:review-report abc123        # one commit
+/review-report:review-report --staged      # staged changes; --working for the working tree
 ```
 
-Pull requests work without the GitHub CLI: the script fetches them with git. With `gh` installed and logged in,
-the report header shows the real branch names and Claude can read the pull request's description, so install
-it for the best result.
+Pull requests work without the GitHub CLI: the script fetches them with git. Git cannot always tell which
+branch a pull request targets, mostly for merged or closed ones. Then the script stops and asks for it:
+`main...#123`. With `gh` installed and logged in, the report header shows the real branch names. Claude can
+also read the pull request's description, so install it for the best result.
 
 ## Install as a skill folder instead
 
