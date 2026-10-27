@@ -85,7 +85,7 @@ Claude never copies diff text into the story; it points at hunks by file and lin
 
 `node render.mjs --dump-numbered [--target <spec>]` prints every diff line as `old new marker content`,
 with `-` where a side has no number. Copy `new` for `side: "new"` comments and `old` for `side: "old"`.
-Targets: none (current branch vs `master`/`main`), `#123` (pull request), `A..B` or `A...B`, a single `<commit>`
+Targets: none (current branch vs `master`/`main`), `#123` (pull request; fetched with gh when installed, otherwise with git), `<branch>...#123` (that pull request compared with `<branch>`, for when git cannot tell its base), `A..B` or `A...B`, a single `<commit>`
 (that commit against its parent), `--staged`, `--working`.
 
 ## Splitting a chapter that is too big
