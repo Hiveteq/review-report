@@ -17,8 +17,8 @@ export const CDN = {
     integrity: 'sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH',
   },
   mermaid: {
-    url: 'https://cdn.jsdelivr.net/npm/mermaid@12.2.0/dist/mermaid.min.js',
-    integrity: 'sha384-8xUhuLNMjW/cI2Dacg3DR4WliYznvIg0LVG1stctThKD/YVrJFI9TNCFxft5NYgp',
+    url: 'https://cdn.jsdelivr.net/npm/mermaid@12.3.0/dist/mermaid.min.js',
+    integrity: 'sha384-HHW54r639fK42Ip0coGF3mz8oSiGn0eEoWNTLs75X7H63pLSDBa0Tqs0RwGmLlXE',
   },
 };
 
