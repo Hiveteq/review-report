@@ -36,8 +36,11 @@ Install it as a plugin:
 Then, inside the repository you want to review:
 
 ```
-/review-report:review-report
+/review-report
 ```
+
+Or just ask: "make a review report of this branch". If another command is also called `/review-report`, use the
+full name `/review-report:review-report`.
 
 Claude writes the walkthrough to `reports/review/` in that repository and gives you its path. You need Node 22 or newer
 and `git`.
@@ -63,11 +66,11 @@ and `git`.
 ## Targets
 
 ```
-/review-report:review-report            # current branch against main or master
-/review-report:review-report #123       # a pull request (needs the gh CLI)
-/review-report:review-report v1..v2     # any git range
-/review-report:review-report abc123     # one commit
-/review-report:review-report --staged   # staged changes; --working for the working tree
+/review-report            # current branch against main or master
+/review-report #123       # a pull request (needs the gh CLI)
+/review-report v1..v2     # any git range
+/review-report abc123     # one commit
+/review-report --staged   # staged changes; --working for the working tree
 ```
 
 ## Install as a skill folder instead
@@ -79,7 +82,7 @@ git clone https://github.com/Hiveteq/review-report.git
 ln -s "$(pwd)/review-report/skills/review-report" ~/.claude/skills/review-report
 ```
 
-The command is then `/review-report`.
+The command is the same, `/review-report`.
 
 ## Privacy
 
