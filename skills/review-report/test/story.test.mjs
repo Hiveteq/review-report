@@ -1,25 +1,37 @@
+// @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { parseDiff } from '../lib/diff.mjs';
-import { validateStory, buildReport } from '../lib/story.mjs';
+import { validateStory, buildReport, withTargetMeta } from '../lib/story.mjs';
+import { OVERVIEW, READER_PASS, fixtureFiles, fixtureStory, minimalStory } from './helpers.mjs';
 
-const OV = { bigPicture: 'a\n```mermaid\nflowchart LR\nA-->B\n```', why: 'b', approach: 'c', howToRead: 'd' };
-const files = parseDiff(readFileSync(new URL('./fixture.diff', import.meta.url), 'utf8'));
-const story = () => JSON.parse(readFileSync(new URL('./fixture.story.json', import.meta.url), 'utf8'));
+/** @typedef {import('../lib/story.mjs').ReportChapter} ReportChapter */
+/** @typedef {import('../lib/story.mjs').Selection} Selection */
+/** @typedef {import('../lib/story.mjs').Story} Story */
+
+const files = fixtureFiles();
+
+// What a diff chapter shows, file by file; the test fails on an html chapter.
+/**
+ * @param {ReportChapter} ch
+ * @returns {Selection[]}
+ */
+function selectionsOf(ch) {
+  assert.equal(ch.kind, 'diff');
+  return ch.hunks;
+}
 
 test('fixture story is valid', () => {
-  assert.deepEqual(validateStory(story()), []);
+  assert.deepEqual(validateStory(fixtureStory()), []);
 });
 
 test('validation reports every missing required field with its path', () => {
-  const errors = validateStory({
-    meta: { readerPass: { rounds: 1, questionsAnswered: 0, openQuestions: 0 } },
+  const errors = validateStory(minimalStory({
+    meta: { readerPass: READER_PASS },
     overview: {},
     chapters: [
       { title: '', intro: '', hunks: [{ file: '', lines: [5, 2], comments: [{ line: 'x', side: 'left', text: '' }] }], html: '<p/>' },
     ],
-  });
+  }));
   for (const expected of [
     'meta.title is required',
     'overview.bigPicture is required',
@@ -35,40 +47,40 @@ test('validation reports every missing required field with its path', () => {
 });
 
 test('empty chapters is an error', () => {
-  assert.ok(validateStory({ meta: { title: 't', readerPass: { rounds: 1, questionsAnswered: 0, openQuestions: 0 } }, overview: OV, chapters: [] }).includes('chapters must be a non-empty array'));
+  assert.ok(validateStory(minimalStory({ chapters: [] })).includes('chapters must be a non-empty array'));
 });
 
 test('selects hunks overlapping the new-side range and defaults comment side to new', () => {
-  const report = buildReport(story(), files);
+  const report = buildReport(fixtureStory(), files);
   assert.deepEqual(report.errors, []);
-  const greeter = report.chapters[1].hunks[0];
+  const greeter = selectionsOf(report.chapters[1])[0];
   assert.equal(greeter.file.path, 'src/Greeter.java');
   assert.equal(greeter.hunks.length, 1);
   assert.deepEqual(greeter.comments.map((c) => [c.line, c.side]), [[4, 'new'], [5, 'old']]);
 });
 
 test('"all" selects every hunk, including pure deletions', () => {
-  const report = buildReport(story(), files);
-  assert.equal(report.chapters[0].hunks[0].hunks.length, 1);
-  assert.equal(report.chapters[2].hunks[0].file.status, 'deleted');
-  assert.equal(report.chapters[2].hunks[0].hunks.length, 1);
+  const report = buildReport(fixtureStory(), files);
+  assert.equal(selectionsOf(report.chapters[0])[0].hunks.length, 1);
+  assert.equal(selectionsOf(report.chapters[2])[0].file.status, 'deleted');
+  assert.equal(selectionsOf(report.chapters[2])[0].hunks.length, 1);
 });
 
 test('unreferenced hunks land in the appendix, referenced ones do not', () => {
-  const report = buildReport(story(), files);
+  const report = buildReport(fixtureStory(), files);
   const paths = report.appendix.map((e) => [e.file.path, e.hunks.length]);
   assert.deepEqual(paths, [['README.md', 1], ['docs/new näme.md', 1], ['img/logo.png', 0], ['img/photo.jpg', 0], ['scripts/run.sh', 0], ['docs/renamed.md', 0]]);
   assert.equal(report.appendix[0].hunks[0].newStart, 1);
 });
 
 test('html chapters pass through', () => {
-  const report = buildReport(story(), files);
+  const report = buildReport(fixtureStory(), files);
   assert.equal(report.chapters[4].kind, 'html');
   assert.match(report.chapters[4].html, /<table>/);
 });
 
 test('bad references produce named errors instead of throwing', () => {
-  const s = story();
+  const s = fixtureStory();
   s.chapters = [
     { title: 'a', intro: 'i', hunks: [{ file: 'src/Missing.java', lines: 'all' }] },
     { title: 'b', intro: 'i', hunks: [{ file: 'src/Greeter.java', lines: [400, 410] }] },
@@ -83,27 +95,28 @@ test('bad references produce named errors instead of throwing', () => {
 });
 
 test('intro must have at least two sentences', () => {
-  const one = validateStory({ meta: { title: 't', readerPass: { rounds: 1, questionsAnswered: 0, openQuestions: 0 } }, overview: OV, chapters: [{ title: 'x', intro: 'Only one sentence here.', hunks: [] }] });
+  const one = validateStory(minimalStory({ chapters: [{ title: 'x', intro: 'Only one sentence here.', hunks: [] }] }));
   assert.ok(one.includes('chapters[0].intro must have at least two sentences: what this chapter shows, and why it follows the previous one'), one.join('\n'));
-  const two = validateStory({ meta: { title: 't', readerPass: { rounds: 1, questionsAnswered: 0, openQuestions: 0 } }, overview: OV, chapters: [{ title: 'x', intro: 'Shows `render.ts`. It follows because the flag needs a consumer!', hunks: [] }] });
+  const two = validateStory(minimalStory({ chapters: [{ title: 'x', intro: 'Shows `render.ts`. It follows because the flag needs a consumer!', hunks: [] }] }));
   assert.ok(!two.some((e) => e.includes('two sentences')), two.join('\n'));
 });
 
 test('glossary is optional (new terms only), but each entry needs term and meaning', () => {
-  const none = validateStory({ meta: { title: 't', readerPass: { rounds: 1, questionsAnswered: 0, openQuestions: 0 } }, overview: OV, chapters: [{ title: 'x', intro: 'One. Two.', hunks: [] }] });
+  const none = validateStory(minimalStory({ chapters: [{ title: 'x', intro: 'One. Two.', hunks: [] }] }));
   assert.ok(!none.some((e) => e.startsWith('glossary')), none.join('\n'));
-  const bad = validateStory({ meta: { title: 't', readerPass: { rounds: 1, questionsAnswered: 0, openQuestions: 0 } }, overview: OV, glossary: [{ term: 'X' }], chapters: [{ title: 'x', intro: 'One. Two.', hunks: [] }] });
+  const bad = validateStory(minimalStory({ glossary: [{ term: 'X' }], chapters: [{ title: 'x', intro: 'One. Two.', hunks: [] }] }));
   assert.ok(bad.includes('glossary[0].meaning is required'), bad.join('\n'));
 });
 
 test('a non-array where a list is expected is reported, not thrown', () => {
-  const errors = validateStory({
-    meta: { title: 't', readerPass: { rounds: 1, questionsAnswered: 0, openQuestions: 0 } }, overview: OV, glossary: [{ term: 'a', meaning: 'b' }], diagrams: { mermaid: 'x' },
+  const errors = validateStory(minimalStory({
+    glossary: [{ term: 'a', meaning: 'b' }],
+    diagrams: { mermaid: 'x' },
     chapters: [
       { title: 'x', intro: 'One. Two.', hunks: { file: 'f', lines: 'all' } },
       { title: 'y', intro: 'One. Two.', hunks: [{ file: 'f', lines: 'all', comments: { line: 1, text: 't' } }] },
     ],
-  });
+  }));
   for (const expected of [
     'diagrams is no longer a story field: put ```mermaid fences inside overview parts or chapter intros',
     'chapters[0].hunks must be an array',
@@ -113,7 +126,11 @@ test('a non-array where a list is expected is reported, not thrown', () => {
 });
 
 test('sentence counting understands other scripts and abbreviations', () => {
-  const withIntro = (intro) => validateStory({ meta: { title: 't', readerPass: { rounds: 1, questionsAnswered: 0, openQuestions: 0 } }, overview: OV, glossary: [{ term: 'a', meaning: 'b' }], chapters: [{ title: 'x', intro, hunks: [] }] });
+  /**
+   * @param {string} intro
+   * @returns {string[]}
+   */
+  const withIntro = (intro) => validateStory(minimalStory({ chapters: [{ title: 'x', intro, hunks: [] }] }));
   const japanese = withIntro('この章では新しい型を示します。次の章はこの型を使う呼び出し元です。');
   assert.ok(!japanese.some((e) => e.includes('two sentences')), japanese.join('\n'));
   const noFinalPeriod = withIntro('The parser comes first. See the v2.0 notes for why');
@@ -123,29 +140,29 @@ test('sentence counting understands other scripts and abbreviations', () => {
 });
 
 test('overview must be an object with the four big-picture parts', () => {
-  const base = { meta: { title: 't', readerPass: { rounds: 1, questionsAnswered: 0, openQuestions: 0 } }, chapters: [{ title: 'x', intro: 'One. Two.', hunks: [] }] };
+  const base = minimalStory({ chapters: [{ title: 'x', intro: 'One. Two.', hunks: [] }] });
   const asString = validateStory({ ...base, overview: 'just a string' });
   assert.ok(asString.includes('overview must be an object with bigPicture, why, approach and howToRead'), asString.join('\n'));
   const missing = validateStory({ ...base, overview: { bigPicture: 'x', why: '' } });
   for (const e of ['overview.why is required', 'overview.approach is required', 'overview.howToRead is required']) {
     assert.ok(missing.includes(e), `${e}\n${missing.join('\n')}`);
   }
-  const ok = validateStory({ ...base, overview: OV });
+  const ok = validateStory({ ...base, overview: OVERVIEW });
   assert.ok(!ok.some((e) => e.startsWith('overview')), ok.join('\n'));
 });
 
 test('overview must contain at least one mermaid diagram; a top-level diagrams array is rejected', () => {
-  const base = { meta: { title: 't', readerPass: { rounds: 1, questionsAnswered: 0, openQuestions: 0 } }, glossary: [{ term: 'a', meaning: 'b' }], chapters: [{ title: 'x', intro: 'One. Two.', hunks: [] }] };
-  const none = validateStory({ ...base, overview: { ...OV, bigPicture: 'plain text' } });
+  const base = minimalStory({ chapters: [{ title: 'x', intro: 'One. Two.', hunks: [] }] });
+  const none = validateStory({ ...base, overview: { ...OVERVIEW, bigPicture: 'plain text' } });
   assert.ok(none.includes('overview needs at least one ```mermaid diagram inside bigPicture or approach'), none.join('\n'));
-  const withDiagram = validateStory({ ...base, overview: { ...OV, approach: 'Text.\n```mermaid\nflowchart LR\nA-->B\n```' } });
+  const withDiagram = validateStory({ ...base, overview: { ...OVERVIEW, approach: 'Text.\n```mermaid\nflowchart LR\nA-->B\n```' } });
   assert.ok(!withDiagram.some((e) => e.startsWith('overview')), withDiagram.join('\n'));
-  const legacy = validateStory({ ...base, overview: OV, diagrams: [{ mermaid: 'x' }] });
+  const legacy = validateStory({ ...base, diagrams: [{ mermaid: 'x' }] });
   assert.ok(legacy.includes('diagrams is no longer a story field: put ```mermaid fences inside overview parts or chapter intros'), legacy.join('\n'));
 });
 
 test('exclude entries need glob and reason', () => {
-  const s = story();
+  const s = fixtureStory();
   s.exclude = [{ glob: 'x/**' }, { reason: 'no glob' }, 'string'];
   const errors = validateStory(s);
   for (const e of ['exclude[0].reason is required', 'exclude[1].glob is required', 'exclude[2] must be { glob, reason }']) {
@@ -154,7 +171,7 @@ test('exclude entries need glob and reason', () => {
 });
 
 test('readerPass records rounds, questions answered and questions still open', () => {
-  const s = story();
+  const s = fixtureStory();
   delete s.meta.readerPass;
   assert.ok(!validateStory(s).some((e) => e.includes('readerPass')), 'absence is reported at render time, not a shape error');
   s.meta.readerPass = { rounds: 0, questionsAnswered: 0, openQuestions: 0 };
@@ -168,12 +185,12 @@ test('readerPass records rounds, questions answered and questions still open', (
 });
 
 test('slice shows only the given new-side range of a hunk; the rest stays in the appendix', () => {
-  const s = story();
+  const s = fixtureStory();
   // Name.java is a new file: one hunk, lines 1-3. Show only line 3 in chapter 1.
   s.chapters[0].hunks[0] = { file: 'src/Name.java', lines: [3, 3], slice: true, comments: [{ line: 3, text: 'The record.' }] };
   const report = buildReport(s, files);
   assert.deepEqual(report.errors, []);
-  const sel = report.chapters[0].hunks[0];
+  const sel = selectionsOf(report.chapters[0])[0];
   assert.deepEqual(sel.hunks[0].lines.map((l) => l.new), [3]);
   assert.equal(sel.hunks[0].newStart, 3);
   const rest = report.appendix.find((e) => e.file.path === 'src/Name.java');
@@ -182,7 +199,7 @@ test('slice shows only the given new-side range of a hunk; the rest stays in the
 });
 
 test('two slices of one new file in two chapters cover it completely', () => {
-  const s = story();
+  const s = fixtureStory();
   s.chapters[0].hunks[0] = { file: 'src/Name.java', lines: [1, 2], slice: true };
   s.chapters[2].hunks.push({ file: 'src/Name.java', lines: [3, 3], slice: true });
   const report = buildReport(s, files);
@@ -191,24 +208,37 @@ test('two slices of one new file in two chapters cover it completely', () => {
 });
 
 test('a slice keeps deleted lines that sit inside its range', () => {
-  const s = story();
+  const s = fixtureStory();
   // Greeter: old 4-5 deleted, new 4-5 added. A slice of new 4-5 carries the two deletions before them.
   s.chapters[1].hunks[0] = { file: 'src/Greeter.java', lines: [4, 5], slice: true, comments: [{ line: 5, side: 'old', text: 'old' }] };
   const report = buildReport(s, files);
   assert.deepEqual(report.errors, []);
-  assert.deepEqual(report.chapters[1].hunks[0].hunks[0].lines.map((l) => [l.type, l.old, l.new]), [
+  assert.deepEqual(selectionsOf(report.chapters[1])[0].hunks[0].lines.map((l) => [l.type, l.old, l.new]), [
     ['del', 4, null], ['del', 5, null], ['add', null, 4], ['add', null, 5],
   ]);
 });
 
+test('sliced hunks share line objects with the parsed diff', () => {
+  const story = /** @type {Story} */ (minimalStory({
+    chapters: [{ title: 'Part', intro: 'x', hunks: [{ file: files[0].path, lines: [2, 3], slice: true }] }],
+  }));
+
+  const report = buildReport(story, files);
+
+  const shown = selectionsOf(report.chapters[0])[0].hunks[0].lines;
+  const parsed = new Set(files[0].hunks.flatMap((h) => h.lines));
+  assert.ok(shown.length > 0, 'the slice shows no lines, so the check below would pass vacuously');
+  assert.ok(shown.every((line) => parsed.has(line)), 'a slice copied its lines; coverage would count them as not shown');
+});
+
 test('slice needs a line range, not "all"', () => {
-  const s = story();
+  const s = fixtureStory();
   s.chapters[0].hunks[0] = { file: 'src/Name.java', lines: 'all', slice: true };
   assert.ok(validateStory(s).includes('chapters[0].hunks[0].slice needs lines as [start, end]'));
 });
 
 test('tests must be an array of globs and covers must be text', () => {
-  const s = story();
+  const s = fixtureStory();
   s.tests = 'src/**';
   s.chapters[0].hunks[0].covers = 42;
   const errors = validateStory(s);
@@ -217,13 +247,13 @@ test('tests must be an array of globs and covers must be text', () => {
 });
 
 test('covers is carried onto the selected hunk', () => {
-  const s = story();
+  const s = fixtureStory();
   s.chapters[0].hunks[0].covers = 'Pins the record shape.';
-  assert.equal(buildReport(s, files).chapters[0].hunks[0].covers, 'Pins the record shape.');
+  assert.equal(selectionsOf(buildReport(s, files).chapters[0])[0].covers, 'Pins the record shape.');
 });
 
 test('a note naming code that sits on the next line gets a warning with the likely line', () => {
-  const s = story();
+  const s = fixtureStory();
   // Name.java line 3 is the record; anchoring the note on line 2 (blank) is the classic off-by-one.
   s.chapters[0].hunks[0].comments = [{ line: 2, text: 'A Java `record` gives `equals` and the `value()` accessor.' }];
   const report = buildReport(s, files);
@@ -234,7 +264,7 @@ test('a note naming code that sits on the next line gets a warning with the like
 });
 
 test('no warning when the named code is on the anchored line, or nowhere nearby', () => {
-  const s = story();
+  const s = fixtureStory();
   s.chapters[0].hunks[0].comments = [
     { line: 3, text: 'A Java `record`.' },
     { line: 1, text: 'Mentions `SomethingElse` that is not in this file.' },
@@ -244,10 +274,52 @@ test('no warning when the named code is on the anchored line, or nowhere nearby'
 });
 
 test('old-side notes are checked against old-side lines', () => {
-  const s = story();
-  // Greeter old 4 is the old signature, old 5 the concatenation. A note about `concat`-free text but naming `Hello` belongs on old 5.
+  const s = fixtureStory();
+  // Greeter old 4 is the old signature, old 5 the concatenation. Names `Hello`, which is on old line 5, not 4.
   s.chapters[1].hunks[0].comments = [{ line: 4, side: 'old', text: 'The deleted `"Hello "` concatenation.' }];
   const w = buildReport(s, files).warnings;
   assert.equal(w.length, 1);
   assert.match(w[0], /old line 4 does not contain `Hello`; old line 5 does/);
+});
+
+/**
+ * A stand-in for describeTarget that counts its calls.
+ * @returns {{ describe: () => { label: string, base: string, head: string }, calls: () => number }}
+ */
+function countingDescribe() {
+  let count = 0;
+  return {
+    describe: () => {
+      count += 1;
+      return { label: 'PR #7 (feature vs main)', base: 'main', head: 'feature' };
+    },
+    calls: () => count,
+  };
+}
+
+test('target meta is described only when the story leaves a field out, and only the missing fields are filled', () => {
+  const stub = countingDescribe();
+  const story = /** @type {Story} */ (minimalStory({ meta: { title: 't', target: 'my label', readerPass: { ...READER_PASS } } }));
+
+  const filled = withTargetMeta(story, { fromFile: false, describe: stub.describe });
+
+  assert.equal(stub.calls(), 1);
+  assert.deepEqual(filled.meta, { title: 't', target: 'my label', readerPass: READER_PASS, base: 'main', head: 'feature' });
+  assert.equal(story.meta.base, undefined, 'the validated story is not changed');
+});
+
+test('a story with target, base and head set is returned as it is, without describing the target', () => {
+  const stub = countingDescribe();
+  const story = fixtureStory();
+
+  assert.equal(withTargetMeta(story, { fromFile: false, describe: stub.describe }), story);
+  assert.equal(stub.calls(), 0);
+});
+
+test('a diff read from a file leaves the meta gaps empty, without describing the target', () => {
+  const stub = countingDescribe();
+  const story = /** @type {Story} */ (minimalStory());
+
+  assert.equal(withTargetMeta(story, { fromFile: true, describe: stub.describe }), story);
+  assert.equal(stub.calls(), 0);
 });

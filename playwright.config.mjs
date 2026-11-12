@@ -1,12 +1,14 @@
+// @ts-check
 // Browser tests for the report page script, in the three engines a reviewer might use.
 // Reports are opened from file:// URLs, as a reviewer opens them; globalSetup renders them first.
 import { defineConfig, devices } from '@playwright/test';
 
-const ci = !!process.env.CI;
+const ci = Boolean(process.env.CI);
 
 export default defineConfig({
   testDir: 'e2e',
-  globalSetup: './e2e/render-reports.mjs',
+  globalSetup: './e2e/global-setup.mjs',
+  globalTeardown: './e2e/global-teardown.mjs',
   fullyParallel: true,
   forbidOnly: ci,
   retries: 0, // a flaky test is a bug to fix, not to retry

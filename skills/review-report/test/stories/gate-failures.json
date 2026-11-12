@@ -1,0 +1,49 @@
+{
+  "meta": {
+    "title": "Greeter takes a Name value object",
+    "target": "fixture",
+    "base": "master",
+    "head": "feature/name"
+  },
+  "overview": {
+    "bigPicture": "`Greeter` builds the greeting text from whatever string the caller passes. This change puts a `Name` type between the caller and `Greeter`.\n\n```mermaid\nflowchart LR\n  Caller --> Name --> Greeter.greet\n  classDef new fill:#dafbe1,stroke:#1a7f37\n  classDef changed fill:#fff8c5,stroke:#9a6700\n  class Name new\n  class Greeter.greet changed\n```\n\nGreen is new, yellow is changed; the caller is untouched.",
+    "why": "Passing a raw `String` let callers send empty or malformed names. Bugs showed up far from the call site.",
+    "approach": "Introduce a `Name` record and make `Greeter.greet` accept only that type. Callers must construct a `Name`, so validation happens once, at the boundary.",
+    "howToRead": "Top to bottom: the new type first, then the call site that adopts it, then the class it replaces. Docs and the migration table close the report."
+  },
+  "glossary": [
+    {
+      "term": "Name",
+      "meaning": "New value object wrapping a person's name, so callers cannot pass an arbitrary string."
+    }
+  ],
+  "howToTest": "```bash\nmvn -q test\n```",
+  "exclude": [
+    {
+      "glob": "nothing/**",
+      "reason": "matches no file on purpose"
+    }
+  ],
+  "chapters": [
+    {
+      "title": "1. The new Name type",
+      "intro": "Everything else depends on this record, so it comes first. It is the type the rest of the change passes around.",
+      "hunks": [
+        {
+          "file": "src/Name.java",
+          "lines": "all",
+          "comments": [
+            {
+              "line": 3,
+              "text": "A Java `record` gives `equals`, `hashCode` and the `value()` accessor for free."
+            },
+            {
+              "line": 1,
+              "text": "Declares the package of the `Name` record."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
