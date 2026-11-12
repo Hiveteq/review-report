@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": [
+    "skills/review-report/render.mjs",
+    "skills/review-report/lib/*.mjs",
+    "skills/review-report/test/*.mjs",
+    "skills/review-report/template/report.js",
+    "scripts/*.mjs",
+    "e2e/*.mjs",
+    "playwright.config.mjs",
+    "eslint.config.js"
+  ]
+}

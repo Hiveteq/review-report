@@ -1,18 +1,35 @@
+// @ts-check
 // Highlighting and diagrams come from pinned CDN files; without them the page must still work.
-import { test, expect, reportUrl } from './reports.mjs';
+import { test, expect, reportUrl, DIAGRAM_TIMEOUT } from './reports.mjs';
 
 test.describe('with the CDNs reachable', () => {
   test.use({ cdn: true });
 
   test('the pinned highlight.js and Mermaid files load and pass their integrity checks', async ({ page }) => {
+    /** @type {string[]} */
     const consoleErrors = [];
     page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 
     await page.goto(reportUrl('single.html'));
 
     await expect(page.locator('td.code code.hljs').first()).toBeAttached();
-    await expect(page.locator('pre.mermaid svg').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('pre.mermaid svg').first()).toBeVisible({ timeout: DIAGRAM_TIMEOUT });
     expect(consoleErrors.filter((t) => /integrity|digest|subresource/i.test(t))).toEqual([]);
+  });
+
+  // highlight.js logs two console lines for every block in a language it does not ship, so the page asks
+  // it first. Fence names that are also properties every object inherits must still count as unknown.
+  test('code fences tagged constructor or toString stay plain, without a highlight.js warning', async ({ page }) => {
+    /** @type {string[]} */
+    const messages = [];
+    page.on('console', (m) => messages.push(m.text()));
+
+    await page.goto(reportUrl('prototype-names.html'));
+
+    await expect(page.locator('td.code code.hljs').first()).toBeAttached();
+    await expect(page.locator('pre > code.language-constructor')).toBeVisible();
+    await expect(page.locator('pre > code.language-constructor.hljs, pre > code.language-toString.hljs')).toHaveCount(0);
+    expect(messages.filter((text) => text.includes('Could not find the language'))).toEqual([]);
   });
 });
 

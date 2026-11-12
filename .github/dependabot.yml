@@ -9,6 +9,11 @@ updates:
     commit-message: # "build(deps): bump …", per the convention in AGENTS.md
       prefix: build
       include: scope
+    ignore: # type definitions stay on Node 20, so the code uses no newer Node API
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript" # 7 has no JavaScript API yet, which ESLint plugins and editors rely on
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
