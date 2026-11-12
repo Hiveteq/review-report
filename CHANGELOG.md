@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.3
+
+**Changes**
+- Mermaid 12.2.0 (from 12.1.0).
+
+**Docs**
+- The README uses the short `/review-report` command. A plain request such as "make a review report of this
+  branch" also starts the skill. The full `/review-report:review-report` remains for a name clash.
+
 ## 0.1.2
 
 **Features**
