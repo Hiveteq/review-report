@@ -1,17 +1,35 @@
+// @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { parseDiff } from '../lib/diff.mjs';
 import { buildReport } from '../lib/story.mjs';
-import { renderHtml } from '../lib/html.mjs';
+import { computeCoverage } from '../lib/coverage.mjs';
+import { renderHtml, renderPages } from '../lib/html.mjs';
 import { CDN } from '../lib/cdn.mjs';
+import { FIXTURE_DIFF_PATH, FIXTURE_STORY_PATH, fixtureDiffText, fixtureStory, minimalStory, spawnRender, tempDir } from './helpers.mjs';
 
-const OV = { bigPicture: 'a\n```mermaid\nflowchart LR\nA-->B\n```', why: 'b', approach: 'c', howToRead: 'd' };
-const fixtureText = readFileSync(new URL('./fixture.diff', import.meta.url), 'utf8');
+/** @typedef {import('../lib/story.mjs').Story} Story */
+/** @typedef {import('../lib/diff.mjs').DiffFile} DiffFile */
+
+const fixtureText = fixtureDiffText();
 const files = parseDiff(fixtureText);
-const story = JSON.parse(readFileSync(new URL('./fixture.story.json', import.meta.url), 'utf8'));
+const story = fixtureStory();
 const assets = { css: 'body{--marker:css}', js: 'window.__marker="js";' };
-const html = renderHtml(story, buildReport(story, files), files, assets);
+
+/**
+ * The render input render.mjs builds: the report and its coverage both come from this story and these files.
+ * @param {Story} s
+ * @param {DiffFile[]} f
+ * @returns {import('../lib/html.mjs').RenderInput}
+ */
+function inputFor(s, f) {
+  const report = buildReport(s, f);
+  return { story: s, report, files: f, coverage: computeCoverage(s, f, report), assets };
+}
+
+const html = renderHtml(inputFor(story, files));
 
 test('embeds title, assets and CDN links', () => {
   assert.match(html, /<title>Greeter takes a Name value object<\/title>/);
@@ -37,7 +55,7 @@ test('renders overview and how-to-test; diagram sits inside the big picture, no 
 test('chapter diff rows carry old and new numbers and language class', () => {
   assert.match(html, /<tr class="line del" data-old="4" data-new="">/);
   assert.match(html, /<tr class="line add" data-old="" data-new="4">/);
-  assert.match(html, /<code class="language-java">    public String greet\(Name name\) \{<\/code>/);
+  assert.match(html, /<code class="language-java"> {4}public String greet\(Name name\) \{<\/code>/);
 });
 
 test('comment rows follow their anchor line on the right side', () => {
@@ -71,9 +89,9 @@ test('html chapters pass through unescaped; deleted and renamed files are labell
   assert.match(html, /docs\/old name\.md → docs\/new näme\.md/);
 });
 
-test('omits empty sections and the mermaid script when no diagram is present (Review Focus 4)', () => {
+test('omits empty sections and the mermaid script when no diagram is present', () => {
   const bare = { ...story, overview: { ...story.overview, bigPicture: 'Plain text only.' }, howToTest: undefined };
-  const out = renderHtml(bare, buildReport(bare, files), files, assets);
+  const out = renderHtml(inputFor(bare, files));
   assert.ok(!out.includes('id="how-to-test"'));
   assert.ok(!out.includes('cdn.jsdelivr.net/npm/mermaid'));
 });
@@ -89,7 +107,7 @@ test('sidebar has a notes layout toggle and the page defaults to margin notes', 
 
 test('renders the glossary as a key-terms section after the overview', () => {
   const g = { ...story, glossary: [{ term: 'Greeter', meaning: 'The class that builds the greeting text. Lives in `src/`.' }] };
-  const out = renderHtml(g, buildReport(g, files), files, assets);
+  const out = renderHtml(inputFor(g, files));
   const overview = out.indexOf('<h2 id="overview">');
   const terms = out.indexOf('<h2 id="key-terms">New terms</h2>');
   assert.ok(terms > overview, 'key terms after overview');
@@ -108,8 +126,8 @@ test('header-only files render in the appendix with a reason and a real file-ind
 });
 
 test('an empty added file is labelled as such, not as a rename', () => {
-  const extra = parseDiff(fixtureText + 'diff --git a/pkg/__init__.py b/pkg/__init__.py\nnew file mode 100644\nindex 0000000..e69de29\n');
-  const out = renderHtml(story, buildReport(story, extra), extra, assets);
+  const extra = parseDiff(`${fixtureText}diff --git a/pkg/__init__.py b/pkg/__init__.py\nnew file mode 100644\nindex 0000000..e69de29\n`);
+  const out = renderHtml(inputFor(story, extra));
   assert.match(out, /data-path="pkg\/__init__\.py"[\s\S]*?<span class="status added">added<\/span>[\s\S]*?<p class="muted">Empty file added\.<\/p>/);
   assert.ok(!/data-path="pkg\/__init__\.py"[\s\S]{0,600}Renamed/.test(out));
 });
@@ -117,7 +135,7 @@ test('an empty added file is labelled as such, not as a rename', () => {
 test('the mermaid script is loaded only when the page has a diagram', () => {
   assert.ok(html.includes(`<script src="${CDN.mermaid.url}"`));
   const bare = { ...story, overview: { ...story.overview, bigPicture: 'No diagram here.' } };
-  assert.ok(!renderHtml(bare, buildReport(bare, files), files, assets).includes('cdn.jsdelivr.net/npm/mermaid'));
+  assert.ok(!renderHtml(inputFor(bare, files)).includes('cdn.jsdelivr.net/npm/mermaid'));
 });
 
 test('hunk header rows use git\'s label format', () => {
@@ -127,16 +145,29 @@ test('hunk header rows use git\'s label format', () => {
 
 test('only the first block of a file carries an id', () => {
   const twice = { ...story, chapters: [...story.chapters, { title: 'again', intro: 'Same file again. Shown twice on purpose.', hunks: [{ file: 'src/Name.java', lines: 'all' }] }] };
-  const out = renderHtml(twice, buildReport(twice, files), files, assets);
+  const out = renderHtml(inputFor(twice, files));
   assert.equal((out.match(/<section class="file" id="file-2-c"/g) ?? []).length, 1);
   assert.equal((out.match(/<section class="file" data-path="src\/Name\.java"/g) ?? []).length, 1);
 });
 
+test('an extension named like an Object property is an unknown language, not an inherited property', () => {
+  const names = ['a.constructor', 'a.__proto__', 'a.unknownext'];
+  const extra = parseDiff(`${fixtureText}${names.map((n) => `diff --git a/${n} b/${n}\n--- a/${n}\n+++ b/${n}\n@@ -1 +1 @@\n-a\n+b\n`).join('')}`);
+
+  const out = renderHtml(inputFor(story, extra));
+
+  const languageOf = (/** @type {string} */ name) => new RegExp(`data-path="${name.replaceAll('.', '\\.')}"[\\s\\S]*?<code class="language-([^"]*)">`).exec(out)?.[1];
+  assert.deepEqual(names.map(languageOf), ['plaintext', 'plaintext', 'plaintext']);
+});
+
 test('a permission change next to a content change shows as a badge', () => {
   const withMode = parseDiff(fixtureText.replace('diff --git a/src/Greeter.java b/src/Greeter.java\nindex 1111111..2222222 100644\n', 'diff --git a/src/Greeter.java b/src/Greeter.java\nold mode 100644\nnew mode 100755\nindex 1111111..2222222\n'));
-  const out = renderHtml(story, buildReport(story, withMode), withMode, assets);
+  const out = renderHtml(inputFor(story, withMode));
   assert.match(out, /data-path="src\/Greeter\.java" data-hash="[0-9a-f]{8}">[\s\S]*?<span class="status mode">mode 100644 → 100755<\/span>/);
-  assert.ok(!html.includes('class="status mode"'), 'no badge without a mode change');
+});
+
+test('a file without a permission change has no mode badge', () => {
+  assert.ok(!html.includes('class="status mode"'));
 });
 
 test('file index links carry the full path as a title', () => {
@@ -156,9 +187,8 @@ test('report header shows coverage and the appendix names what was excluded and 
   assert.match(html, /<details class="excluded"><summary>Excluded from the count: 3 files<\/summary><ul><li>docs\/new näme\.md <span class="muted">docs: prose, not code<\/span><\/li><li>img\/logo\.png <span class="muted">binary<\/span><\/li><li>img\/photo\.jpg <span class="muted">binary<\/span><\/li><\/ul><\/details>/);
 });
 
-test('paged rendering: an index page plus one page per chapter, linked both ways', async () => {
-  const { renderPages } = await import('../lib/html.mjs');
-  const pages = renderPages(story, buildReport(story, files), files, assets, { paged: true });
+test('paged rendering: an index page plus one page per chapter, linked both ways', () => {
+  const pages = renderPages({ ...inputFor(story, files), paged: true });
   assert.deepEqual(pages.map((p) => p.path), ['index.html', 'chapter-01.html', 'chapter-02.html', 'chapter-03.html', 'chapter-04.html', 'chapter-05.html', 'other-changes.html']);
   const index = pages[0].html;
   assert.match(index, /<h2 id="overview">Overview<\/h2>/);
@@ -186,12 +216,12 @@ test('paged rendering: an index page plus one page per chapter, linked both ways
   assert.ok(!pages[6].html.includes('class="next"'));
 });
 
-test('single-page rendering is unchanged and renderPages returns one page for it', async () => {
-  const { renderPages } = await import('../lib/html.mjs');
-  const pages = renderPages(story, buildReport(story, files), files, assets, { paged: false });
-  assert.equal(pages.length, 1);
-  assert.equal(pages[0].path, 'index.html');
-  assert.equal(pages[0].html, html);
+test('the fixture renders to the committed example report, as `npm run example` does', (t) => {
+  const dir = tempDir(t);
+  const out = join(dir, 'example.html');
+  const r = spawnRender(['--story', FIXTURE_STORY_PATH, '--diff-file', FIXTURE_DIFF_PATH, '--out', out], { cwd: dir });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(readFileSync(out, 'utf8'), readFileSync(new URL('../reference/example-report.html', import.meta.url), 'utf8'));
 });
 
 test('excluded files in Other changes are collapsed with their reason; unreferenced source stays open', () => {
@@ -200,22 +230,21 @@ test('excluded files in Other changes are collapsed with their reason; unreferen
   assert.match(ap, /<section class="file"[^>]*data-path="README\.md" data-hash="[0-9a-f]{8}">/);
 });
 
-test('paged sidebar lists the files on this page first, then all files collapsed', async () => {
-  const { renderPages } = await import('../lib/html.mjs');
-  const pages = renderPages(story, buildReport(story, files), files, assets, { paged: true });
+test('paged sidebar lists the files on this page first, then all files collapsed', () => {
+  const pages = renderPages({ ...inputFor(story, files), paged: true });
   const ch2 = pages[2].html;
   assert.match(ch2, /<h3>Files on this page<\/h3>\s*<nav class="file-index"><ul><li><a href="#file-1-c" data-file="src\/Greeter\.java"/);
   assert.match(ch2, /<details class="all-files"><summary>All files \(9\)<\/summary><nav class="file-index">/);
 });
 
-test('every page carries a stable report id and each file block a content hash, for viewed state', async () => {
-  const { renderPages } = await import('../lib/html.mjs');
-  const pages = renderPages(story, buildReport(story, files), files, assets, { paged: true });
+test('every page carries a stable report id and each file block a content hash, for viewed state', () => {
+  const pages = renderPages({ ...inputFor(story, files), paged: true });
   const ids = pages.map((p) => /<html [^>]*data-report-id="([a-z0-9-]+)"/.exec(p.html)?.[1]);
   assert.ok(ids.every((id) => id && id === ids[0]), `one id on every page: ${ids}`);
-  assert.match(ids[0], /^greeter-takes-a-name-value-object-[0-9a-f]{8}$/);
+  assert.match(/** @type {string} */ (ids[0]), /^greeter-takes-a-name-value-object-[0-9a-f]{8}$/); // the check above found an id
   const other = { ...story, meta: { ...story.meta, title: 'Other title' } };
-  const otherId = /data-report-id="([a-z0-9-]+)"/.exec(renderHtml(other, buildReport(other, files), files, assets))[1];
+  // Cannot be null: every rendered page carries a report id.
+  const otherId = /** @type {RegExpExecArray} */ (/data-report-id="([a-z0-9-]+)"/.exec(renderHtml(inputFor(other, files))))[1];
   assert.notEqual(otherId, ids[0]);
   assert.match(html, /<section class="file" id="file-1-c" data-path="src\/Greeter\.java" data-hash="[0-9a-f]{8}">/);
 });
@@ -230,16 +259,14 @@ test('sidebar has one global diff toggle and a viewed progress rail', () => {
   assert.match(html, /<h3>Files<\/h3>\s*<div class="viewed-progress"><span class="viewed-count" data-total="6">0 of 6 viewed<\/span><div class="rail"><div class="fill"><\/div><\/div><\/div>/);
 });
 
-test('index chapter list carries the files of each chapter so viewed counts can be shown per chapter', async () => {
-  const { renderPages } = await import('../lib/html.mjs');
-  const index = renderPages(story, buildReport(story, files), files, assets, { paged: true })[0].html;
+test('index chapter list carries the files of each chapter so viewed counts can be shown per chapter', () => {
+  const index = renderPages({ ...inputFor(story, files), paged: true })[0].html;
   assert.match(index, /<li data-files="src\/Name\.java"><a href="chapter-01\.html">1\. The new Name type<\/a>/);
   assert.match(index, /<li data-files="src\/Greeter\.java"><a href="chapter-02\.html">/);
 });
 
-test('sidebar chapter entries and chapter headings carry their file list for the viewed marker', async () => {
-  const { renderPages } = await import('../lib/html.mjs');
-  const pages = renderPages(story, buildReport(story, files), files, assets, { paged: true });
+test('sidebar chapter entries and chapter headings carry their file list for the viewed marker', () => {
+  const pages = renderPages({ ...inputFor(story, files), paged: true });
   const ch2 = pages[2].html;
   assert.match(ch2, /<li class="current" data-files="src\/Greeter\.java"><a href="chapter-02\.html">2\. Greeter adopts Name<\/a><span class="chapter-progress"><\/span><\/li>/);
   assert.match(ch2, /<li data-files="src\/Name\.java"><a href="chapter-01\.html">1\. The new Name type<\/a><span class="chapter-progress"><\/span><\/li>/);
@@ -258,6 +285,29 @@ test('every CDN file is pinned to an exact version with a subresource-integrity 
   }
   for (const file of Object.values(CDN)) {
     assert.match(file.url, /@?\d+\.\d+\.\d+\//, `${file.url} carries an exact version`);
-    assert.ok(html.includes(`"${file.url}"`) || file.url.includes('mermaid'), `${file.url} is used`);
+    assert.ok(html.includes(`"${file.url}"`), `${file.url} is used`);
   }
+});
+
+test('the pre-paint snippet reads the storage keys the page script writes', () => {
+  // Cannot be null: every page carries the snippet in its head.
+  const prePaint = /** @type {string} */ (/<script>\n(\/\/ Apply theme[\s\S]*?)<\/script>/.exec(html)?.[1]);
+  const keys = [...prePaint.matchAll(/localStorage\.getItem\('([^']+)'\)/g)].map((m) => m[1]);
+  const pageScript = readFileSync(new URL('../template/report.js', import.meta.url), 'utf8');
+
+  assert.deepEqual(keys, ['review-report-theme', 'review-report-notes', 'review-report-diff']);
+  for (const key of keys) assert.ok(pageScript.includes(`'${key}'`), `template/report.js uses '${key}'`);
+});
+
+test('a paged report of 5,000 files renders in seconds, not minutes', () => {
+  const bigDiff = Array.from({ length: 5000 }, (_, i) => `diff --git a/f${i}.txt b/f${i}.txt\n--- a/f${i}.txt\n+++ b/f${i}.txt\n@@ -1 +1 @@\n-a\n+b\n`).join('');
+  const bigFiles = parseDiff(bigDiff);
+  const bigStory = /** @type {Story} */ (minimalStory({ chapters: [{ title: 'One', intro: 'x', hunks: [{ file: 'f0.txt', lines: 'all' }] }] }));
+  const bigReport = buildReport(bigStory, bigFiles);
+
+  const started = performance.now();
+  const coverage = computeCoverage(bigStory, bigFiles, bigReport);
+  renderPages({ story: bigStory, report: bigReport, files: bigFiles, coverage, assets: { css: '', js: '' }, paged: true });
+
+  assert.ok(performance.now() - started < 5_000, 'quadratic coverage recomputation is back');
 });

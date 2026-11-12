@@ -1,3 +1,4 @@
+// @ts-check
 // Third-party files the report page loads at view time. Each is pinned to an exact version and
 // carries a subresource-integrity hash, so a browser refuses a file the CDN changed or a third
 // party tampered with. Both CDNs send Access-Control-Allow-Origin: *, which integrity checking
@@ -22,5 +23,15 @@ export const CDN = {
   },
 };
 
+/**
+ * @typedef {object} CdnFile
+ * @property {string} url
+ * @property {string} integrity subresource-integrity hash of the file at url
+ */
+
 // The attributes every pinned tag carries.
+/**
+ * @param {CdnFile} file
+ * @returns {string}
+ */
 export const pin = (file) => `integrity="${file.integrity}" crossorigin="anonymous"`;

@@ -1,9 +1,36 @@
+// @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { parseDiff, formatNumbered, unquotePath, hunkLabel, headerOnlyKind, headerOnlyReason } from '../lib/diff.mjs';
+import { HEADER_ONLY, parseDiff, formatNumbered, unquotePath, hunkLabel, headerOnlyKind, headerOnlyReason, lineStats } from '../lib/diff.mjs';
+import { fixtureDiffText } from './helpers.mjs';
 
-const fixture = readFileSync(new URL('./fixture.diff', import.meta.url), 'utf8');
+/** @typedef {import('../lib/diff.mjs').DiffFile} DiffFile */
+/** @typedef {import('../lib/diff.mjs').HeaderOnlyKind} HeaderOnlyKind */
+
+const fixture = fixtureDiffText();
+
+// The first parsed file that `pick` accepts; the test fails when there is none.
+/**
+ * @param {DiffFile[]} files
+ * @param {(f: DiffFile) => unknown} pick truthy for the file wanted
+ * @returns {DiffFile}
+ */
+function findFile(files, pick) {
+  const file = files.find(pick);
+  assert.ok(file, 'no matching file in the diff');
+  return file;
+}
+
+// Why a file has no hunks; the test fails when it has some.
+/**
+ * @param {DiffFile} file
+ * @returns {HeaderOnlyKind}
+ */
+function kindOf(file) {
+  const kind = headerOnlyKind(file);
+  assert.ok(kind, `${file.path} has hunks to show`);
+  return kind;
+}
 
 test('parses one entry per file with status', () => {
   const files = parseDiff(fixture);
@@ -49,31 +76,30 @@ test('keeps line content without the leading marker', () => {
 });
 
 test('deleted file uses old path and has no new numbers', () => {
-  const legacy = parseDiff(fixture).find((f) => f.status === 'deleted');
+  const legacy = findFile(parseDiff(fixture), (f) => f.status === 'deleted');
   assert.equal(legacy.path, 'src/Legacy.java');
   assert.ok(legacy.hunks[0].lines.every((l) => l.new === null));
 });
 
 test('splits multiple hunks in one file', () => {
-  const readme = parseDiff(fixture).find((f) => f.path === 'README.md');
+  const readme = findFile(parseDiff(fixture), (f) => f.path === 'README.md');
   assert.equal(readme.hunks.length, 2);
   assert.equal(readme.hunks[1].newStart, 10);
   assert.equal(readme.hunks[1].lines[2].new, 11);
 });
 
 test('rename keeps both paths and tolerates spaces, unicode and trailing tab', () => {
-  const renamed = parseDiff(fixture).find((f) => f.status === 'renamed');
+  const renamed = findFile(parseDiff(fixture), (f) => f.status === 'renamed');
   assert.equal(renamed.oldPath, 'docs/old name.md');
   assert.equal(renamed.newPath, 'docs/new näme.md');
   assert.equal(renamed.path, 'docs/new näme.md');
 });
 
-test('formatNumbered prints old and new numbers per line for every file', async () => {
-  const { formatNumbered } = await import('../lib/diff.mjs');
+test('formatNumbered prints old and new numbers per line for every file', () => {
   const out = formatNumbered(parseDiff(fixture));
-  assert.match(out, /^=== src\/Greeter\.java \(modified\)\n  old   new  line\n@@ -1,7 \+1,8 @@ package demo;\n/m);
-  assert.match(out, /^ {4}4 {5}- -    public String greet\(String name\) \{$/m);
-  assert.match(out, /^ {4}- {5}4 \+    public String greet\(Name name\) \{$/m);
+  assert.match(out, /^=== src\/Greeter\.java \(modified\)\n {2}old {3}new {2}line\n@@ -1,7 \+1,8 @@ package demo;\n/m);
+  assert.match(out, /^ {4}4 {5}- - {4}public String greet\(String name\) \{$/m);
+  assert.match(out, /^ {4}- {5}4 \+ {4}public String greet\(Name name\) \{$/m);
   assert.match(out, /^ {4}1 {5}1 {2}package demo;$/m);
   assert.match(out, /^=== src\/Legacy\.java \(deleted\)$/m);
   assert.match(out, /^=== docs\/new näme\.md \(renamed from docs\/old name\.md\)$/m);
@@ -81,17 +107,17 @@ test('formatNumbered prints old and new numbers per line for every file', async 
 
 test('binary files get their path from the diff --git line and no hunks', () => {
   const files = parseDiff(fixture);
-  const logo = files.find((f) => f.path === 'img/logo.png');
+  const logo = findFile(files, (f) => f.path === 'img/logo.png');
   assert.equal(logo.binary, true);
   assert.equal(logo.status, 'added');
   assert.deepEqual(logo.hunks, []);
-  const photo = files.find((f) => f.path === 'img/photo.jpg');
+  const photo = findFile(files, (f) => f.path === 'img/photo.jpg');
   assert.equal(photo.binary, true);
   assert.equal(photo.oldPath, 'img/photo.jpg');
 });
 
 test('mode-only change records old and new mode with zero hunks', () => {
-  const run = parseDiff(fixture).find((f) => f.path === 'scripts/run.sh');
+  const run = findFile(parseDiff(fixture), (f) => f.path === 'scripts/run.sh');
   assert.equal(run.oldMode, '100644');
   assert.equal(run.newMode, '100755');
   assert.deepEqual(run.hunks, []);
@@ -99,21 +125,19 @@ test('mode-only change records old and new mode with zero hunks', () => {
 });
 
 test('pure rename keeps both paths with zero hunks', () => {
-  const moved = parseDiff(fixture).find((f) => f.path === 'docs/renamed.md');
+  const moved = findFile(parseDiff(fixture), (f) => f.path === 'docs/renamed.md');
   assert.equal(moved.status, 'renamed');
   assert.equal(moved.oldPath, 'docs/moved.md');
   assert.deepEqual(moved.hunks, []);
 });
 
-test('unquotes C-style quoted paths as git prints them for unicode, tabs and quotes', async () => {
-  const { unquotePath } = await import('../lib/diff.mjs');
+test('unquotes C-style quoted paths as git prints them for unicode, tabs and quotes', () => {
   assert.equal(unquotePath('"b/caf\\303\\251.txt"'), 'b/café.txt');
   assert.equal(unquotePath('"a/we\\"ird\\ttab\\\\.md"'), 'a/we"ird\ttab\\.md');
   assert.equal(unquotePath('plain/path.md'), 'plain/path.md');
 });
 
-test('numbered dump lists header-only files', async () => {
-  const { formatNumbered } = await import('../lib/diff.mjs');
+test('numbered dump lists header-only files', () => {
   const out = formatNumbered(parseDiff(fixture));
   assert.match(out, /^=== img\/logo\.png \(added\)\n\(binary\)$/m);
   assert.match(out, /^=== scripts\/run\.sh \(modified\)\n\(mode 100644 → 100755, no content change\)$/m);
@@ -123,17 +147,21 @@ test('numbered dump lists header-only files', async () => {
 test('a blank context line saved as "" still counts, so later numbers stay right', () => {
   const trimmed = fixture.replace('@@ -1,7 +1,8 @@ package demo;\n package demo;\n \n', '@@ -1,7 +1,8 @@ package demo;\n package demo;\n\n');
   assert.notEqual(trimmed, fixture, 'fixture blank context line found');
+  /**
+   * @param {string} text
+   * @returns {(string | number | null)[][]}
+   */
   const numbers = (text) => parseDiff(text)[0].hunks[0].lines.map((l) => [l.type, l.old, l.new]);
   assert.deepEqual(numbers(trimmed), numbers(fixture));
 });
 
 test('text after a completed hunk (a format-patch signature) is not diff content', () => {
-  const [greeter] = parseDiff(fixture.split('diff --git a/src/Name.java')[0] + '-- \n2.39.0\n\n');
+  const [greeter] = parseDiff(`${fixture.split('diff --git a/src/Name.java')[0]}-- \n2.39.0\n\n`);
   assert.equal(greeter.hunks[0].lines.length, 10);
 });
 
 test('a leading byte-order mark does not hide the first file', () => {
-  assert.equal(parseDiff('\uFEFF' + fixture)[0].path, 'src/Greeter.java');
+  assert.equal(parseDiff(`\uFEFF${fixture}`)[0].path, 'src/Greeter.java');
 });
 
 test('quoted paths keep characters outside the BMP and survive a dangling backslash', () => {
@@ -142,7 +170,7 @@ test('quoted paths keep characters outside the BMP and survive a dangling backsl
 });
 
 test('hunk labels follow git and omit a count of 1', () => {
-  const renamed = parseDiff(fixture).find((f) => f.status === 'renamed' && f.hunks.length);
+  const renamed = findFile(parseDiff(fixture), (f) => f.status === 'renamed' && f.hunks.length);
   assert.equal(hunkLabel(renamed.hunks[0]), '@@ -1 +1 @@');
   assert.equal(hunkLabel(parseDiff(fixture)[0].hunks[0]), '@@ -1,7 +1,8 @@ package demo;');
   assert.match(formatNumbered(parseDiff(fixture)), /^@@ -1 \+1 @@$/m);
@@ -154,9 +182,9 @@ test('headerOnlyKind tells an empty added file from a pure rename', () => {
   assert.equal(headerOnlyKind(empty), 'empty');
   assert.equal(headerOnlyReason(empty), 'empty file');
   const files = parseDiff(fixture);
-  assert.equal(headerOnlyKind(files.find((f) => f.path === 'docs/renamed.md')), 'rename');
-  assert.equal(headerOnlyKind(files.find((f) => f.path === 'scripts/run.sh')), 'mode');
-  assert.equal(headerOnlyKind(files.find((f) => f.path === 'img/logo.png')), 'binary');
+  assert.equal(headerOnlyKind(findFile(files, (f) => f.path === 'docs/renamed.md')), 'rename');
+  assert.equal(headerOnlyKind(findFile(files, (f) => f.path === 'scripts/run.sh')), 'mode');
+  assert.equal(headerOnlyKind(findFile(files, (f) => f.path === 'img/logo.png')), 'binary');
   assert.equal(headerOnlyKind(files[0]), null);
 });
 
@@ -168,4 +196,61 @@ test('a mode change on a file that also has hunks is kept and named in the dump'
   const out = formatNumbered(files);
   assert.match(out, /^=== run\.sh \(modified, mode 100644 → 100755\)$/m);
   assert.match(out, /^=== new\.sh \(added, mode 100755\)$/m);
+});
+
+test('a hunk line that looks like a file header line stays diff content', () => {
+  // Deleting "-- other.md" and adding "++ other.md" gives body lines that start like the --- and +++ header lines.
+  const text = 'diff --git a/n.md b/n.md\nindex 1111111..2222222 100644\n--- a/n.md\n+++ b/n.md\n@@ -1 +1 @@\n--- other.md\n+++ other.md\n';
+
+  const [file] = parseDiff(text);
+
+  assert.deepEqual([file.oldPath, file.newPath], ['n.md', 'n.md']);
+  assert.deepEqual(file.hunks[0].lines.map((l) => [l.type, l.content]), [['del', '-- other.md'], ['add', '++ other.md']]);
+});
+
+test('each header-only kind has a dump reason and a report sentence', () => {
+  const files = parseDiff(fixture);
+  /** @type {[DiffFile, string, string][]} */
+  const cases = [
+    [findFile(files, (f) => f.path === 'img/logo.png'), 'binary', 'Binary file, no textual diff.'],
+    [findFile(files, (f) => f.path === 'scripts/run.sh'), 'mode 100644 → 100755, no content change', 'Mode changed 100644 → 100755, no content change.'],
+    [findFile(files, (f) => f.path === 'docs/renamed.md'), 'no content change', 'Renamed, no content change.'],
+    [parseDiff('diff --git a/e.txt b/e.txt\nnew file mode 100644\nindex 0000000..e69de29\n')[0], 'empty file', 'Empty file added.'],
+    [parseDiff('diff --git a/e.txt b/e.txt\ndeleted file mode 100644\nindex e69de29..0000000\n')[0], 'empty file', 'Empty file deleted.'],
+    // A pure copy under diff.renames=copies: no hunks, and nothing about the file changed.
+    [parseDiff('diff --git a/a.txt b/b.txt\nsimilarity index 100%\ncopy from a.txt\ncopy to b.txt\n')[0], 'no content change', 'No content change.'],
+  ];
+
+  const wording = cases.map(([file]) => [headerOnlyReason(file), HEADER_ONLY[kindOf(file)].sentence(file)]);
+
+  assert.deepEqual(wording, cases.map(([, reason, sentence]) => [reason, sentence]));
+});
+
+test('lineStats counts added, deleted and all rows of a file', () => {
+  const files = parseDiff(fixture);
+
+  const stats = [files[0], findFile(files, (f) => f.path === 'img/logo.png')].map(lineStats);
+
+  assert.deepEqual(stats, [{ adds: 3, dels: 2, rows: 10 }, { adds: 0, dels: 0, rows: 0 }]);
+});
+
+test('header lookalikes after a finished hunk are neither header nor content', () => {
+  const text = 'diff --git a/n.md b/n.md\nindex 1111111..2222222 100644\n--- a/n.md\n+++ b/n.md\n@@ -1 +1 @@\n-a\n+b\n'
+    + '--- x\n+++ y\nrename from z\nold mode 100755\nBinary files differ\n';
+
+  const [file] = parseDiff(text);
+
+  assert.deepEqual([file.path, file.oldPath, file.newPath, file.status, file.oldMode, file.binary], ['n.md', 'n.md', 'n.md', 'modified', null, false]);
+  assert.deepEqual(file.hunks[0].lines.map((l) => [l.type, l.content]), [['del', 'a'], ['add', 'b']]);
+});
+
+test('a binary patch with a very long body parses without overflowing the stack', () => {
+  // `git diff --binary` prints the patch as base85 lines in the file header, one line per 52 bytes.
+  // Only a `Binary files … differ` line marks a file binary, so this one reads as an empty added file.
+  const body = Array.from({ length: 150_000 }, () => 'zcmV-uq3t4rT%8!0RR91000000001S00000').join('\n');
+  const text = `diff --git a/big.bin b/big.bin\nnew file mode 100644\nindex 0000000..1234567\nGIT binary patch\nliteral 7800000\n${body}\n\nliteral 0\nHcmV?d00001\n\n`;
+
+  const files = parseDiff(text);
+
+  assert.deepEqual(files.map((f) => [f.path, f.status, f.binary, f.hunks.length, headerOnlyKind(f)]), [['big.bin', 'added', false, 0, 'empty']]);
 });
