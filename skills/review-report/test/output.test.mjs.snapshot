@@ -1,0 +1,566 @@
+exports[`messages for bad-references 1`] = `
+exit 1
+--- stdout
+--- stderr
+error: chapters[0].hunks[0]: file not in diff: src/Missing.java
+error: chapters[1].hunks[0].comments[0]: new line 99 is not in the selected hunks of src/Greeter.java
+
+`;
+
+exports[`messages for gate-failures 1`] = `
+exit 1
+--- stdout
+--- stderr
+warning: chapters[0].hunks[0].comments[1]: src/Name.java new line 1 does not contain \`Name\`; new line 3 does. Move the note if it is about that line.
+warning: reader pass not recorded; the header says so. Run it and render again (reference/reader-pass.md)
+error: tests is required: globs matching this project's test files, [] if the change has none
+error: exclude glob matches no file in this diff: nothing/**
+error: coverage 19% of changed lines shown in chapters; minimum is 100%. Not shown, largest first:
+  src/Greeter.java +3 -2 (5 not shown)
+  README.md +2 -2 (4 not shown)
+  src/Legacy.java +0 -2 (2 not shown)
+  docs/new näme.md +1 -1 (2 not shown)
+  add chapters for these files, or exclude them in the story with a reason (generated, vendored, docs, fixtures)
+
+`;
+
+exports[`messages for invalid-story 1`] = `
+exit 1
+--- stdout
+--- stderr
+error: meta.title is required
+error: meta.readerPass.rounds must be at least 1
+error: overview.why is required
+error: chapters[0].hunks[0].file is required
+error: chapters[0].hunks[0].comments[0].line must be an integer
+
+`;
+
+exports[`messages for test-without-covers 1`] = `
+exit 1
+--- stdout
+--- stderr
+error: chapters[0].hunks[0]: src/Name.java is a test file (matches src/Name.*); add "covers": what it pins and what it leaves untested
+
+`;
+
+exports[`numbered dump of the fixture 1`] = `
+exit 0
+--- stdout
+=== src/Greeter.java (modified)
+  old   new  line
+@@ -1,7 +1,8 @@ package demo;
+    1     1  package demo;
+    2     2  
+    3     3  public class Greeter {
+    4     - -    public String greet(String name) {
+    5     - -        return "Hello " + name;
+    -     4 +    public String greet(Name name) {
+    -     5 +        return "Hello " + name.value();
+    6     6      }
+    -     7 +
+    7     8  }
+=== src/Name.java (added)
+  old   new  line
+@@ -0,0 +1,3 @@
+    -     1 +package demo;
+    -     2 +
+    -     3 +public record Name(String value) {}
+=== src/Legacy.java (deleted)
+  old   new  line
+@@ -1,2 +0,0 @@
+    1     - -package demo;
+    2     - -class Legacy {}
+=== README.md (modified)
+  old   new  line
+@@ -1,2 +1,2 @@
+    1     1  # Demo
+    2     - -Old line
+    -     2 +New line
+@@ -10,3 +10,3 @@ ## Usage
+   10    10  ## Usage
+   11     - -Run it
+    -    11 +Run it with \`make\`
+   12    12  Done
+=== docs/new näme.md (renamed from docs/old name.md)
+  old   new  line
+@@ -1 +1 @@
+    1     - -title
+    -     1 +Title
+=== img/logo.png (added)
+(binary)
+=== img/photo.jpg (modified)
+(binary)
+=== scripts/run.sh (modified)
+(mode 100644 → 100755, no content change)
+=== docs/renamed.md (renamed from docs/moved.md)
+(no content change)
+--- stderr
+
+`;
+
+exports[`paged output of the fixture 1`] = `
+exit 0
+--- stdout
+<out>/r/index.html
+--- stderr
+
+`;
+
+exports[`paged output of the fixture 2`] = `
+chapter-01.html
+chapter-02.html
+chapter-03.html
+chapter-04.html
+chapter-05.html
+index.html
+other-changes.html
+`;
+
+exports[`paged output of the fixture 3`] = `
+<!doctype html>
+<html lang="en" data-theme="light" data-notes="margin" data-diff="unified" data-report-id="greeter-takes-a-name-value-object-980f1fc1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1. The new Name type · Greeter takes a Name value object</title>
+<script>
+// Apply theme before first paint to avoid a flash. Mirrors report.js logic.
+(function(){try{var d=document.documentElement,t=localStorage.getItem('review-report-theme');if(!t){t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}d.dataset.theme=t;var n=localStorage.getItem('review-report-notes');if(n==='inline'||n==='margin'){d.dataset.notes=n}var f=localStorage.getItem('review-report-diff');if(f==='split'||f==='unified'){d.dataset.diff=f}}catch(e){}})();
+</script>
+<link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github.min.css" integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L" crossorigin="anonymous">
+<link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github-dark.min.css" integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH" crossorigin="anonymous" disabled>
+<style>/* template/report.css */</style>
+</head>
+<body>
+<div class="layout">
+<nav class="sidebar">
+  <div class="sidebar-top">
+    <button id="theme-toggle" type="button" title="Toggle light/dark">Theme</button>
+    <button id="notes-toggle" type="button" title="Notes beside the code, or inline between lines">Notes: margin</button>
+    <button id="diff-toggle" type="button" title="Unified diff, or old and new side by side; applies to every file">Diff: unified</button>
+  </div>
+  <ol class="toc">
+    <li><a href="index.html#overview">Overview</a></li>
+    <li><a href="index.html#key-terms">New terms</a></li>
+    <li><a href="index.html#how-to-test">How to test</a></li>
+    <li class="current" data-files="src/Name.java"><a href="chapter-01.html">1. The new Name type</a><span class="chapter-progress"></span></li>
+    <li data-files="src/Greeter.java"><a href="chapter-02.html">2. Greeter adopts Name</a><span class="chapter-progress"></span></li>
+    <li data-files="src/Legacy.java"><a href="chapter-03.html">3. Legacy removed</a><span class="chapter-progress"></span></li>
+    <li data-files="README.md"><a href="chapter-04.html">4. Usage docs</a><span class="chapter-progress"></span></li>
+    <li><a href="chapter-05.html">5. Migration checklist</a></li>
+    <li><a href="other-changes.html">Other changes</a></li>
+  </ol>
+  <h3>Files on this page</h3>
+  <nav class="file-index"><ul><li><a href="#file-2-c" data-file="src/Name.java" title="src/Name.java"><bdi>src/Name.java</bdi></a> <span class="add">+3</span><span class="del">-0</span></li></ul></nav>
+  <div class="viewed-progress"><span class="viewed-count" data-total="6">0 of 6 viewed</span><div class="rail"><div class="fill"></div></div></div>
+  <details class="all-files"><summary>All files (9)</summary><nav class="file-index"><ul><li><a href="chapter-02.html#file-1-c" data-file="src/Greeter.java" title="src/Greeter.java"><bdi>src/Greeter.java</bdi></a> <span class="add">+3</span><span class="del">-2</span></li><li><a href="chapter-01.html#file-2-c" data-file="src/Name.java" title="src/Name.java"><bdi>src/Name.java</bdi></a> <span class="add">+3</span><span class="del">-0</span></li><li><a href="chapter-03.html#file-3-c" data-file="src/Legacy.java" title="src/Legacy.java"><bdi>src/Legacy.java</bdi></a> <span class="add">+0</span><span class="del">-2</span></li><li><a href="chapter-04.html#file-4-c" data-file="README.md" title="README.md"><bdi>README.md</bdi></a> <span class="add">+2</span><span class="del">-2</span></li><li><a href="other-changes.html#file-5-c" data-file="docs/new näme.md" title="docs/new näme.md"><bdi>docs/new näme.md</bdi></a> <span class="add">+1</span><span class="del">-1</span></li><li><a href="other-changes.html#file-6-c" data-file="img/logo.png" title="img/logo.png"><bdi>img/logo.png</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-7-c" data-file="img/photo.jpg" title="img/photo.jpg"><bdi>img/photo.jpg</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-8-c" data-file="scripts/run.sh" title="scripts/run.sh"><bdi>scripts/run.sh</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-9-c" data-file="docs/renamed.md" title="docs/renamed.md"><bdi>docs/renamed.md</bdi></a> <span class="add">+0</span><span class="del">-0</span></li></ul></nav></details>
+</nav>
+<main>
+<header class="report-header">
+  <h1><a href="index.html">Greeter takes a Name value object</a></h1>
+  <p class="target">fixture</p>
+  <p class="coverage">12 of 14 changed lines shown in chapters (86%). Reader pass: 1 round, 2 questions answered, none open.</p>
+  
+</header>
+<nav class="pager"><a class="prev" href="index.html">← Overview</a><a class="next" href="chapter-02.html">2. Greeter adopts Name →</a></nav>
+<section class="chapter" data-files="src/Name.java"><h2 id="chapter-1">1. The new Name type</h2><p class="chapter-viewed"></p><div class="intro"><p>Everything else depends on this record, so it comes first. It is the type the rest of the change passes around.</p></div><section class="file" id="file-2-c" data-path="src/Name.java" data-hash="64c2f221">
+<header class="file-header"><span class="path">src/Name.java</span><span class="status added">added</span><label class="viewed"><input type="checkbox" class="viewed-toggle"> Viewed</label></header>
+<div class="file-body"><div class="diff-col"><table class="diff unified"><colgroup><col class="num"><col class="num"><col class="code"></colgroup><tr class="hunk-header"><td colspan="3">@@ -0,0 +1,3 @@</td></tr><tr class="line add" data-old="" data-new="1"><td class="num old"></td><td class="num new">1</td><td class="code"><code class="language-java">package demo;</code></td></tr><tr class="line add" data-old="" data-new="2"><td class="num old"></td><td class="num new">2</td><td class="code"><code class="language-java"></code></td></tr><tr class="line add" data-old="" data-new="3"><td class="num old"></td><td class="num new">3</td><td class="code"><code class="language-java">public record Name(String value) {}</code></td></tr><tr class="comment" data-anchor-side="new" data-anchor-line="3"><td colspan="3"><div class="callout"><p>A Java <code>record</code> gives <code>equals</code>, <code>hashCode</code> and the <code>value()</code> accessor for free.</p></div></td></tr></table></div><aside class="notes-col"></aside></div>
+</section></section>
+<nav class="pager"><a class="prev" href="index.html">← Overview</a><a class="next" href="chapter-02.html">2. Greeter adopts Name →</a></nav>
+</main>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/highlight.min.js" integrity="sha384-wjfDDhOPPdjtva8vWBhWeVprSpmxisEu5aYT3q1JyACqXpdKpo3PWZTMVq24MBix" crossorigin="anonymous"></script>
+<script>/* template/report.js */</script>
+</body>
+</html>
+`;
+
+exports[`paged output of the fixture 4`] = `
+<!doctype html>
+<html lang="en" data-theme="light" data-notes="margin" data-diff="unified" data-report-id="greeter-takes-a-name-value-object-980f1fc1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2. Greeter adopts Name · Greeter takes a Name value object</title>
+<script>
+// Apply theme before first paint to avoid a flash. Mirrors report.js logic.
+(function(){try{var d=document.documentElement,t=localStorage.getItem('review-report-theme');if(!t){t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}d.dataset.theme=t;var n=localStorage.getItem('review-report-notes');if(n==='inline'||n==='margin'){d.dataset.notes=n}var f=localStorage.getItem('review-report-diff');if(f==='split'||f==='unified'){d.dataset.diff=f}}catch(e){}})();
+</script>
+<link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github.min.css" integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L" crossorigin="anonymous">
+<link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github-dark.min.css" integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH" crossorigin="anonymous" disabled>
+<style>/* template/report.css */</style>
+</head>
+<body>
+<div class="layout">
+<nav class="sidebar">
+  <div class="sidebar-top">
+    <button id="theme-toggle" type="button" title="Toggle light/dark">Theme</button>
+    <button id="notes-toggle" type="button" title="Notes beside the code, or inline between lines">Notes: margin</button>
+    <button id="diff-toggle" type="button" title="Unified diff, or old and new side by side; applies to every file">Diff: unified</button>
+  </div>
+  <ol class="toc">
+    <li><a href="index.html#overview">Overview</a></li>
+    <li><a href="index.html#key-terms">New terms</a></li>
+    <li><a href="index.html#how-to-test">How to test</a></li>
+    <li data-files="src/Name.java"><a href="chapter-01.html">1. The new Name type</a><span class="chapter-progress"></span></li>
+    <li class="current" data-files="src/Greeter.java"><a href="chapter-02.html">2. Greeter adopts Name</a><span class="chapter-progress"></span></li>
+    <li data-files="src/Legacy.java"><a href="chapter-03.html">3. Legacy removed</a><span class="chapter-progress"></span></li>
+    <li data-files="README.md"><a href="chapter-04.html">4. Usage docs</a><span class="chapter-progress"></span></li>
+    <li><a href="chapter-05.html">5. Migration checklist</a></li>
+    <li><a href="other-changes.html">Other changes</a></li>
+  </ol>
+  <h3>Files on this page</h3>
+  <nav class="file-index"><ul><li><a href="#file-1-c" data-file="src/Greeter.java" title="src/Greeter.java"><bdi>src/Greeter.java</bdi></a> <span class="add">+3</span><span class="del">-2</span></li></ul></nav>
+  <div class="viewed-progress"><span class="viewed-count" data-total="6">0 of 6 viewed</span><div class="rail"><div class="fill"></div></div></div>
+  <details class="all-files"><summary>All files (9)</summary><nav class="file-index"><ul><li><a href="chapter-02.html#file-1-c" data-file="src/Greeter.java" title="src/Greeter.java"><bdi>src/Greeter.java</bdi></a> <span class="add">+3</span><span class="del">-2</span></li><li><a href="chapter-01.html#file-2-c" data-file="src/Name.java" title="src/Name.java"><bdi>src/Name.java</bdi></a> <span class="add">+3</span><span class="del">-0</span></li><li><a href="chapter-03.html#file-3-c" data-file="src/Legacy.java" title="src/Legacy.java"><bdi>src/Legacy.java</bdi></a> <span class="add">+0</span><span class="del">-2</span></li><li><a href="chapter-04.html#file-4-c" data-file="README.md" title="README.md"><bdi>README.md</bdi></a> <span class="add">+2</span><span class="del">-2</span></li><li><a href="other-changes.html#file-5-c" data-file="docs/new näme.md" title="docs/new näme.md"><bdi>docs/new näme.md</bdi></a> <span class="add">+1</span><span class="del">-1</span></li><li><a href="other-changes.html#file-6-c" data-file="img/logo.png" title="img/logo.png"><bdi>img/logo.png</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-7-c" data-file="img/photo.jpg" title="img/photo.jpg"><bdi>img/photo.jpg</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-8-c" data-file="scripts/run.sh" title="scripts/run.sh"><bdi>scripts/run.sh</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-9-c" data-file="docs/renamed.md" title="docs/renamed.md"><bdi>docs/renamed.md</bdi></a> <span class="add">+0</span><span class="del">-0</span></li></ul></nav></details>
+</nav>
+<main>
+<header class="report-header">
+  <h1><a href="index.html">Greeter takes a Name value object</a></h1>
+  <p class="target">fixture</p>
+  <p class="coverage">12 of 14 changed lines shown in chapters (86%). Reader pass: 1 round, 2 questions answered, none open.</p>
+  
+</header>
+<nav class="pager"><a class="prev" href="chapter-01.html">← 1. The new Name type</a><a class="next" href="chapter-03.html">3. Legacy removed →</a></nav>
+<section class="chapter" data-files="src/Greeter.java"><h2 id="chapter-2">2. Greeter adopts Name</h2><p class="chapter-viewed"></p><div class="intro"><p>The only call site. Note the accessor call replacing direct string use; it follows the record because it consumes it.</p></div><section class="file" id="file-1-c" data-path="src/Greeter.java" data-hash="d8681d1b">
+<header class="file-header"><span class="path">src/Greeter.java</span><label class="viewed"><input type="checkbox" class="viewed-toggle"> Viewed</label></header>
+<div class="file-body"><div class="diff-col"><table class="diff unified"><colgroup><col class="num"><col class="num"><col class="code"></colgroup><tr class="hunk-header"><td colspan="3">@@ -1,7 +1,8 @@ package demo;</td></tr><tr class="line ctx" data-old="1" data-new="1"><td class="num old">1</td><td class="num new">1</td><td class="code"><code class="language-java">package demo;</code></td></tr><tr class="line ctx" data-old="2" data-new="2"><td class="num old">2</td><td class="num new">2</td><td class="code"><code class="language-java"></code></td></tr><tr class="line ctx" data-old="3" data-new="3"><td class="num old">3</td><td class="num new">3</td><td class="code"><code class="language-java">public class Greeter {</code></td></tr><tr class="line del" data-old="4" data-new=""><td class="num old">4</td><td class="num new"></td><td class="code"><code class="language-java">    public String greet(String name) {</code></td></tr><tr class="line del" data-old="5" data-new=""><td class="num old">5</td><td class="num new"></td><td class="code"><code class="language-java">        return &quot;Hello &quot; + name;</code></td></tr><tr class="comment" data-anchor-side="old" data-anchor-line="5"><td colspan="3"><div class="callout"><p>The deleted line concatenated the raw string. The replacement calls <code>name.value()</code>.</p></div></td></tr><tr class="line add" data-old="" data-new="4"><td class="num old"></td><td class="num new">4</td><td class="code"><code class="language-java">    public String greet(Name name) {</code></td></tr><tr class="comment" data-anchor-side="new" data-anchor-line="4"><td colspan="3"><div class="callout"><p>Signature changes from <code>String</code> to <code>Name</code>; callers must construct a <code>Name</code>.</p></div></td></tr><tr class="line add" data-old="" data-new="5"><td class="num old"></td><td class="num new">5</td><td class="code"><code class="language-java">        return &quot;Hello &quot; + name.value();</code></td></tr><tr class="line ctx" data-old="6" data-new="6"><td class="num old">6</td><td class="num new">6</td><td class="code"><code class="language-java">    }</code></td></tr><tr class="line add" data-old="" data-new="7"><td class="num old"></td><td class="num new">7</td><td class="code"><code class="language-java"></code></td></tr><tr class="line ctx" data-old="7" data-new="8"><td class="num old">7</td><td class="num new">8</td><td class="code"><code class="language-java">}</code></td></tr></table></div><aside class="notes-col"></aside></div>
+</section></section>
+<nav class="pager"><a class="prev" href="chapter-01.html">← 1. The new Name type</a><a class="next" href="chapter-03.html">3. Legacy removed →</a></nav>
+</main>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/highlight.min.js" integrity="sha384-wjfDDhOPPdjtva8vWBhWeVprSpmxisEu5aYT3q1JyACqXpdKpo3PWZTMVq24MBix" crossorigin="anonymous"></script>
+<script>/* template/report.js */</script>
+</body>
+</html>
+`;
+
+exports[`paged output of the fixture 5`] = `
+<!doctype html>
+<html lang="en" data-theme="light" data-notes="margin" data-diff="unified" data-report-id="greeter-takes-a-name-value-object-980f1fc1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3. Legacy removed · Greeter takes a Name value object</title>
+<script>
+// Apply theme before first paint to avoid a flash. Mirrors report.js logic.
+(function(){try{var d=document.documentElement,t=localStorage.getItem('review-report-theme');if(!t){t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}d.dataset.theme=t;var n=localStorage.getItem('review-report-notes');if(n==='inline'||n==='margin'){d.dataset.notes=n}var f=localStorage.getItem('review-report-diff');if(f==='split'||f==='unified'){d.dataset.diff=f}}catch(e){}})();
+</script>
+<link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github.min.css" integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L" crossorigin="anonymous">
+<link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github-dark.min.css" integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH" crossorigin="anonymous" disabled>
+<style>/* template/report.css */</style>
+</head>
+<body>
+<div class="layout">
+<nav class="sidebar">
+  <div class="sidebar-top">
+    <button id="theme-toggle" type="button" title="Toggle light/dark">Theme</button>
+    <button id="notes-toggle" type="button" title="Notes beside the code, or inline between lines">Notes: margin</button>
+    <button id="diff-toggle" type="button" title="Unified diff, or old and new side by side; applies to every file">Diff: unified</button>
+  </div>
+  <ol class="toc">
+    <li><a href="index.html#overview">Overview</a></li>
+    <li><a href="index.html#key-terms">New terms</a></li>
+    <li><a href="index.html#how-to-test">How to test</a></li>
+    <li data-files="src/Name.java"><a href="chapter-01.html">1. The new Name type</a><span class="chapter-progress"></span></li>
+    <li data-files="src/Greeter.java"><a href="chapter-02.html">2. Greeter adopts Name</a><span class="chapter-progress"></span></li>
+    <li class="current" data-files="src/Legacy.java"><a href="chapter-03.html">3. Legacy removed</a><span class="chapter-progress"></span></li>
+    <li data-files="README.md"><a href="chapter-04.html">4. Usage docs</a><span class="chapter-progress"></span></li>
+    <li><a href="chapter-05.html">5. Migration checklist</a></li>
+    <li><a href="other-changes.html">Other changes</a></li>
+  </ol>
+  <h3>Files on this page</h3>
+  <nav class="file-index"><ul><li><a href="#file-3-c" data-file="src/Legacy.java" title="src/Legacy.java"><bdi>src/Legacy.java</bdi></a> <span class="add">+0</span><span class="del">-2</span></li></ul></nav>
+  <div class="viewed-progress"><span class="viewed-count" data-total="6">0 of 6 viewed</span><div class="rail"><div class="fill"></div></div></div>
+  <details class="all-files"><summary>All files (9)</summary><nav class="file-index"><ul><li><a href="chapter-02.html#file-1-c" data-file="src/Greeter.java" title="src/Greeter.java"><bdi>src/Greeter.java</bdi></a> <span class="add">+3</span><span class="del">-2</span></li><li><a href="chapter-01.html#file-2-c" data-file="src/Name.java" title="src/Name.java"><bdi>src/Name.java</bdi></a> <span class="add">+3</span><span class="del">-0</span></li><li><a href="chapter-03.html#file-3-c" data-file="src/Legacy.java" title="src/Legacy.java"><bdi>src/Legacy.java</bdi></a> <span class="add">+0</span><span class="del">-2</span></li><li><a href="chapter-04.html#file-4-c" data-file="README.md" title="README.md"><bdi>README.md</bdi></a> <span class="add">+2</span><span class="del">-2</span></li><li><a href="other-changes.html#file-5-c" data-file="docs/new näme.md" title="docs/new näme.md"><bdi>docs/new näme.md</bdi></a> <span class="add">+1</span><span class="del">-1</span></li><li><a href="other-changes.html#file-6-c" data-file="img/logo.png" title="img/logo.png"><bdi>img/logo.png</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-7-c" data-file="img/photo.jpg" title="img/photo.jpg"><bdi>img/photo.jpg</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-8-c" data-file="scripts/run.sh" title="scripts/run.sh"><bdi>scripts/run.sh</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-9-c" data-file="docs/renamed.md" title="docs/renamed.md"><bdi>docs/renamed.md</bdi></a> <span class="add">+0</span><span class="del">-0</span></li></ul></nav></details>
+</nav>
+<main>
+<header class="report-header">
+  <h1><a href="index.html">Greeter takes a Name value object</a></h1>
+  <p class="target">fixture</p>
+  <p class="coverage">12 of 14 changed lines shown in chapters (86%). Reader pass: 1 round, 2 questions answered, none open.</p>
+  
+</header>
+<nav class="pager"><a class="prev" href="chapter-02.html">← 2. Greeter adopts Name</a><a class="next" href="chapter-04.html">4. Usage docs →</a></nav>
+<section class="chapter" data-files="src/Legacy.java"><h2 id="chapter-3">3. Legacy removed</h2><p class="chapter-viewed"></p><div class="intro"><p>Dead class with no references, so removing it is safe. It comes after the call site to show nothing else used it.</p></div><section class="file" id="file-3-c" data-path="src/Legacy.java" data-hash="7fbcd814">
+<header class="file-header"><span class="path">src/Legacy.java</span><span class="status deleted">deleted</span><label class="viewed"><input type="checkbox" class="viewed-toggle"> Viewed</label></header>
+<div class="file-body"><div class="diff-col"><table class="diff unified"><colgroup><col class="num"><col class="num"><col class="code"></colgroup><tr class="hunk-header"><td colspan="3">@@ -1,2 +0,0 @@</td></tr><tr class="line del" data-old="1" data-new=""><td class="num old">1</td><td class="num new"></td><td class="code"><code class="language-java">package demo;</code></td></tr><tr class="line del" data-old="2" data-new=""><td class="num old">2</td><td class="num new"></td><td class="code"><code class="language-java">class Legacy {}</code></td></tr><tr class="comment" data-anchor-side="old" data-anchor-line="2"><td colspan="3"><div class="callout"><p>Nothing imported this class.</p></div></td></tr></table></div><aside class="notes-col"></aside></div>
+</section></section>
+<nav class="pager"><a class="prev" href="chapter-02.html">← 2. Greeter adopts Name</a><a class="next" href="chapter-04.html">4. Usage docs →</a></nav>
+</main>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/highlight.min.js" integrity="sha384-wjfDDhOPPdjtva8vWBhWeVprSpmxisEu5aYT3q1JyACqXpdKpo3PWZTMVq24MBix" crossorigin="anonymous"></script>
+<script>/* template/report.js */</script>
+</body>
+</html>
+`;
+
+exports[`paged output of the fixture 6`] = `
+<!doctype html>
+<html lang="en" data-theme="light" data-notes="margin" data-diff="unified" data-report-id="greeter-takes-a-name-value-object-980f1fc1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>4. Usage docs · Greeter takes a Name value object</title>
+<script>
+// Apply theme before first paint to avoid a flash. Mirrors report.js logic.
+(function(){try{var d=document.documentElement,t=localStorage.getItem('review-report-theme');if(!t){t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}d.dataset.theme=t;var n=localStorage.getItem('review-report-notes');if(n==='inline'||n==='margin'){d.dataset.notes=n}var f=localStorage.getItem('review-report-diff');if(f==='split'||f==='unified'){d.dataset.diff=f}}catch(e){}})();
+</script>
+<link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github.min.css" integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L" crossorigin="anonymous">
+<link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github-dark.min.css" integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH" crossorigin="anonymous" disabled>
+<style>/* template/report.css */</style>
+</head>
+<body>
+<div class="layout">
+<nav class="sidebar">
+  <div class="sidebar-top">
+    <button id="theme-toggle" type="button" title="Toggle light/dark">Theme</button>
+    <button id="notes-toggle" type="button" title="Notes beside the code, or inline between lines">Notes: margin</button>
+    <button id="diff-toggle" type="button" title="Unified diff, or old and new side by side; applies to every file">Diff: unified</button>
+  </div>
+  <ol class="toc">
+    <li><a href="index.html#overview">Overview</a></li>
+    <li><a href="index.html#key-terms">New terms</a></li>
+    <li><a href="index.html#how-to-test">How to test</a></li>
+    <li data-files="src/Name.java"><a href="chapter-01.html">1. The new Name type</a><span class="chapter-progress"></span></li>
+    <li data-files="src/Greeter.java"><a href="chapter-02.html">2. Greeter adopts Name</a><span class="chapter-progress"></span></li>
+    <li data-files="src/Legacy.java"><a href="chapter-03.html">3. Legacy removed</a><span class="chapter-progress"></span></li>
+    <li class="current" data-files="README.md"><a href="chapter-04.html">4. Usage docs</a><span class="chapter-progress"></span></li>
+    <li><a href="chapter-05.html">5. Migration checklist</a></li>
+    <li><a href="other-changes.html">Other changes</a></li>
+  </ol>
+  <h3>Files on this page</h3>
+  <nav class="file-index"><ul><li><a href="#file-4-c" data-file="README.md" title="README.md"><bdi>README.md</bdi></a> <span class="add">+2</span><span class="del">-2</span></li></ul></nav>
+  <div class="viewed-progress"><span class="viewed-count" data-total="6">0 of 6 viewed</span><div class="rail"><div class="fill"></div></div></div>
+  <details class="all-files"><summary>All files (9)</summary><nav class="file-index"><ul><li><a href="chapter-02.html#file-1-c" data-file="src/Greeter.java" title="src/Greeter.java"><bdi>src/Greeter.java</bdi></a> <span class="add">+3</span><span class="del">-2</span></li><li><a href="chapter-01.html#file-2-c" data-file="src/Name.java" title="src/Name.java"><bdi>src/Name.java</bdi></a> <span class="add">+3</span><span class="del">-0</span></li><li><a href="chapter-03.html#file-3-c" data-file="src/Legacy.java" title="src/Legacy.java"><bdi>src/Legacy.java</bdi></a> <span class="add">+0</span><span class="del">-2</span></li><li><a href="chapter-04.html#file-4-c" data-file="README.md" title="README.md"><bdi>README.md</bdi></a> <span class="add">+2</span><span class="del">-2</span></li><li><a href="other-changes.html#file-5-c" data-file="docs/new näme.md" title="docs/new näme.md"><bdi>docs/new näme.md</bdi></a> <span class="add">+1</span><span class="del">-1</span></li><li><a href="other-changes.html#file-6-c" data-file="img/logo.png" title="img/logo.png"><bdi>img/logo.png</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-7-c" data-file="img/photo.jpg" title="img/photo.jpg"><bdi>img/photo.jpg</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-8-c" data-file="scripts/run.sh" title="scripts/run.sh"><bdi>scripts/run.sh</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-9-c" data-file="docs/renamed.md" title="docs/renamed.md"><bdi>docs/renamed.md</bdi></a> <span class="add">+0</span><span class="del">-0</span></li></ul></nav></details>
+</nav>
+<main>
+<header class="report-header">
+  <h1><a href="index.html">Greeter takes a Name value object</a></h1>
+  <p class="target">fixture</p>
+  <p class="coverage">12 of 14 changed lines shown in chapters (86%). Reader pass: 1 round, 2 questions answered, none open.</p>
+  
+</header>
+<nav class="pager"><a class="prev" href="chapter-03.html">← 3. Legacy removed</a><a class="next" href="chapter-05.html">5. Migration checklist →</a></nav>
+<section class="chapter" data-files="README.md"><h2 id="chapter-4">4. Usage docs</h2><p class="chapter-viewed"></p><div class="intro"><p>README gains the build command. Only the usage hunk matters here; the title tweak is in the appendix.</p></div><section class="file" id="file-4-c" data-path="README.md" data-hash="4db653e4">
+<header class="file-header"><span class="path">README.md</span><label class="viewed"><input type="checkbox" class="viewed-toggle"> Viewed</label></header>
+<div class="file-body"><div class="diff-col"><table class="diff unified"><colgroup><col class="num"><col class="num"><col class="code"></colgroup><tr class="hunk-header"><td colspan="3">@@ -10,3 +10,3 @@ ## Usage</td></tr><tr class="line ctx" data-old="10" data-new="10"><td class="num old">10</td><td class="num new">10</td><td class="code"><code class="language-markdown">## Usage</code></td></tr><tr class="line del" data-old="11" data-new=""><td class="num old">11</td><td class="num new"></td><td class="code"><code class="language-markdown">Run it</code></td></tr><tr class="line add" data-old="" data-new="11"><td class="num old"></td><td class="num new">11</td><td class="code"><code class="language-markdown">Run it with \`make\`</code></td></tr><tr class="line ctx" data-old="12" data-new="12"><td class="num old">12</td><td class="num new">12</td><td class="code"><code class="language-markdown">Done</code></td></tr></table></div><aside class="notes-col"></aside></div>
+</section></section>
+<nav class="pager"><a class="prev" href="chapter-03.html">← 3. Legacy removed</a><a class="next" href="chapter-05.html">5. Migration checklist →</a></nav>
+</main>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/highlight.min.js" integrity="sha384-wjfDDhOPPdjtva8vWBhWeVprSpmxisEu5aYT3q1JyACqXpdKpo3PWZTMVq24MBix" crossorigin="anonymous"></script>
+<script>/* template/report.js */</script>
+</body>
+</html>
+`;
+
+exports[`paged output of the fixture 7`] = `
+<!doctype html>
+<html lang="en" data-theme="light" data-notes="margin" data-diff="unified" data-report-id="greeter-takes-a-name-value-object-980f1fc1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>5. Migration checklist · Greeter takes a Name value object</title>
+<script>
+// Apply theme before first paint to avoid a flash. Mirrors report.js logic.
+(function(){try{var d=document.documentElement,t=localStorage.getItem('review-report-theme');if(!t){t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}d.dataset.theme=t;var n=localStorage.getItem('review-report-notes');if(n==='inline'||n==='margin'){d.dataset.notes=n}var f=localStorage.getItem('review-report-diff');if(f==='split'||f==='unified'){d.dataset.diff=f}}catch(e){}})();
+</script>
+<link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github.min.css" integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L" crossorigin="anonymous">
+<link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github-dark.min.css" integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH" crossorigin="anonymous" disabled>
+<style>/* template/report.css */</style>
+</head>
+<body>
+<div class="layout">
+<nav class="sidebar">
+  <div class="sidebar-top">
+    <button id="theme-toggle" type="button" title="Toggle light/dark">Theme</button>
+    <button id="notes-toggle" type="button" title="Notes beside the code, or inline between lines">Notes: margin</button>
+    <button id="diff-toggle" type="button" title="Unified diff, or old and new side by side; applies to every file">Diff: unified</button>
+  </div>
+  <ol class="toc">
+    <li><a href="index.html#overview">Overview</a></li>
+    <li><a href="index.html#key-terms">New terms</a></li>
+    <li><a href="index.html#how-to-test">How to test</a></li>
+    <li data-files="src/Name.java"><a href="chapter-01.html">1. The new Name type</a><span class="chapter-progress"></span></li>
+    <li data-files="src/Greeter.java"><a href="chapter-02.html">2. Greeter adopts Name</a><span class="chapter-progress"></span></li>
+    <li data-files="src/Legacy.java"><a href="chapter-03.html">3. Legacy removed</a><span class="chapter-progress"></span></li>
+    <li data-files="README.md"><a href="chapter-04.html">4. Usage docs</a><span class="chapter-progress"></span></li>
+    <li class="current"><a href="chapter-05.html">5. Migration checklist</a></li>
+    <li><a href="other-changes.html">Other changes</a></li>
+  </ol>
+  <h3>Files on this page</h3>
+  <nav class="file-index"><ul></ul></nav>
+  <div class="viewed-progress"><span class="viewed-count" data-total="6">0 of 6 viewed</span><div class="rail"><div class="fill"></div></div></div>
+  <details class="all-files"><summary>All files (9)</summary><nav class="file-index"><ul><li><a href="chapter-02.html#file-1-c" data-file="src/Greeter.java" title="src/Greeter.java"><bdi>src/Greeter.java</bdi></a> <span class="add">+3</span><span class="del">-2</span></li><li><a href="chapter-01.html#file-2-c" data-file="src/Name.java" title="src/Name.java"><bdi>src/Name.java</bdi></a> <span class="add">+3</span><span class="del">-0</span></li><li><a href="chapter-03.html#file-3-c" data-file="src/Legacy.java" title="src/Legacy.java"><bdi>src/Legacy.java</bdi></a> <span class="add">+0</span><span class="del">-2</span></li><li><a href="chapter-04.html#file-4-c" data-file="README.md" title="README.md"><bdi>README.md</bdi></a> <span class="add">+2</span><span class="del">-2</span></li><li><a href="other-changes.html#file-5-c" data-file="docs/new näme.md" title="docs/new näme.md"><bdi>docs/new näme.md</bdi></a> <span class="add">+1</span><span class="del">-1</span></li><li><a href="other-changes.html#file-6-c" data-file="img/logo.png" title="img/logo.png"><bdi>img/logo.png</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-7-c" data-file="img/photo.jpg" title="img/photo.jpg"><bdi>img/photo.jpg</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-8-c" data-file="scripts/run.sh" title="scripts/run.sh"><bdi>scripts/run.sh</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-9-c" data-file="docs/renamed.md" title="docs/renamed.md"><bdi>docs/renamed.md</bdi></a> <span class="add">+0</span><span class="del">-0</span></li></ul></nav></details>
+</nav>
+<main>
+<header class="report-header">
+  <h1><a href="index.html">Greeter takes a Name value object</a></h1>
+  <p class="target">fixture</p>
+  <p class="coverage">12 of 14 changed lines shown in chapters (86%). Reader pass: 1 round, 2 questions answered, none open.</p>
+  
+</header>
+<nav class="pager"><a class="prev" href="chapter-04.html">← 4. Usage docs</a><a class="next" href="other-changes.html">Other changes →</a></nav>
+<section class="chapter"><h2 id="chapter-5">5. Migration checklist</h2><div class="intro"><p>Steps for downstream callers, as a table. Read after the code so the actions make sense.</p></div><div class="custom"><table><tr><th>Caller</th><th>Action</th></tr><tr><td>CLI</td><td>wrap arg in <code>new Name(...)</code></td></tr></table></div></section>
+<nav class="pager"><a class="prev" href="chapter-04.html">← 4. Usage docs</a><a class="next" href="other-changes.html">Other changes →</a></nav>
+</main>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/highlight.min.js" integrity="sha384-wjfDDhOPPdjtva8vWBhWeVprSpmxisEu5aYT3q1JyACqXpdKpo3PWZTMVq24MBix" crossorigin="anonymous"></script>
+<script>/* template/report.js */</script>
+</body>
+</html>
+`;
+
+exports[`paged output of the fixture 8`] = `
+<!doctype html>
+<html lang="en" data-theme="light" data-notes="margin" data-diff="unified" data-report-id="greeter-takes-a-name-value-object-980f1fc1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Greeter takes a Name value object</title>
+<script>
+// Apply theme before first paint to avoid a flash. Mirrors report.js logic.
+(function(){try{var d=document.documentElement,t=localStorage.getItem('review-report-theme');if(!t){t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}d.dataset.theme=t;var n=localStorage.getItem('review-report-notes');if(n==='inline'||n==='margin'){d.dataset.notes=n}var f=localStorage.getItem('review-report-diff');if(f==='split'||f==='unified'){d.dataset.diff=f}}catch(e){}})();
+</script>
+<link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github.min.css" integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L" crossorigin="anonymous">
+<link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github-dark.min.css" integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH" crossorigin="anonymous" disabled>
+<style>/* template/report.css */</style>
+</head>
+<body>
+<div class="layout">
+<nav class="sidebar">
+  <div class="sidebar-top">
+    <button id="theme-toggle" type="button" title="Toggle light/dark">Theme</button>
+    <button id="notes-toggle" type="button" title="Notes beside the code, or inline between lines">Notes: margin</button>
+    <button id="diff-toggle" type="button" title="Unified diff, or old and new side by side; applies to every file">Diff: unified</button>
+  </div>
+  <ol class="toc">
+    <li><a href="index.html#overview">Overview</a></li>
+    <li><a href="index.html#key-terms">New terms</a></li>
+    <li><a href="index.html#how-to-test">How to test</a></li>
+    <li data-files="src/Name.java"><a href="chapter-01.html">1. The new Name type</a><span class="chapter-progress"></span></li>
+    <li data-files="src/Greeter.java"><a href="chapter-02.html">2. Greeter adopts Name</a><span class="chapter-progress"></span></li>
+    <li data-files="src/Legacy.java"><a href="chapter-03.html">3. Legacy removed</a><span class="chapter-progress"></span></li>
+    <li data-files="README.md"><a href="chapter-04.html">4. Usage docs</a><span class="chapter-progress"></span></li>
+    <li><a href="chapter-05.html">5. Migration checklist</a></li>
+    <li><a href="other-changes.html">Other changes</a></li>
+  </ol>
+  <h3>Files</h3>
+  <div class="viewed-progress"><span class="viewed-count" data-total="6">0 of 6 viewed</span><div class="rail"><div class="fill"></div></div></div>
+  <nav class="file-index"><ul><li><a href="chapter-02.html#file-1-c" data-file="src/Greeter.java" title="src/Greeter.java"><bdi>src/Greeter.java</bdi></a> <span class="add">+3</span><span class="del">-2</span></li><li><a href="chapter-01.html#file-2-c" data-file="src/Name.java" title="src/Name.java"><bdi>src/Name.java</bdi></a> <span class="add">+3</span><span class="del">-0</span></li><li><a href="chapter-03.html#file-3-c" data-file="src/Legacy.java" title="src/Legacy.java"><bdi>src/Legacy.java</bdi></a> <span class="add">+0</span><span class="del">-2</span></li><li><a href="chapter-04.html#file-4-c" data-file="README.md" title="README.md"><bdi>README.md</bdi></a> <span class="add">+2</span><span class="del">-2</span></li><li><a href="other-changes.html#file-5-c" data-file="docs/new näme.md" title="docs/new näme.md"><bdi>docs/new näme.md</bdi></a> <span class="add">+1</span><span class="del">-1</span></li><li><a href="other-changes.html#file-6-c" data-file="img/logo.png" title="img/logo.png"><bdi>img/logo.png</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-7-c" data-file="img/photo.jpg" title="img/photo.jpg"><bdi>img/photo.jpg</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-8-c" data-file="scripts/run.sh" title="scripts/run.sh"><bdi>scripts/run.sh</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-9-c" data-file="docs/renamed.md" title="docs/renamed.md"><bdi>docs/renamed.md</bdi></a> <span class="add">+0</span><span class="del">-0</span></li></ul></nav>
+</nav>
+<main>
+<header class="report-header">
+  <h1>Greeter takes a Name value object</h1>
+  <p class="target">fixture</p>
+  <p class="coverage">12 of 14 changed lines shown in chapters (86%). Reader pass: 1 round, 2 questions answered, none open.</p>
+  <details class="excluded"><summary>Excluded from the count: 3 files</summary><ul><li>docs/new näme.md <span class="muted">docs: prose, not code</span></li><li>img/logo.png <span class="muted">binary</span></li><li>img/photo.jpg <span class="muted">binary</span></li></ul></details>
+</header>
+<nav class="pager"><span></span><a class="next" href="chapter-01.html">1. The new Name type →</a></nav>
+<section><h2 id="overview">Overview</h2><h3>Where this change sits</h3>
+<p><code>Greeter</code> builds the greeting text from whatever string the caller passes. This change puts a <code>Name</code> type between the caller and <code>Greeter</code>.</p>
+<figure class="diagram"><pre class="mermaid" data-source="flowchart LR
+  Caller --&gt; Name --&gt; Greeter.greet
+  classDef new fill:#dafbe1,stroke:#1a7f37
+  classDef changed fill:#fff8c5,stroke:#9a6700
+  class Name new
+  class Greeter.greet changed">flowchart LR
+  Caller --&gt; Name --&gt; Greeter.greet
+  classDef new fill:#dafbe1,stroke:#1a7f37
+  classDef changed fill:#fff8c5,stroke:#9a6700
+  class Name new
+  class Greeter.greet changed</pre></figure>
+<p>Green is new, yellow is changed; the caller is untouched.</p>
+<h3>Why this change</h3>
+<p>Passing a raw <code>String</code> let callers send empty or malformed names. Bugs showed up far from the call site.</p>
+<h3>What changes</h3>
+<p>Introduce a <code>Name</code> record and make <code>Greeter.greet</code> accept only that type. Callers must construct a <code>Name</code>, so validation happens once, at the boundary.</p>
+<h3>How to read this report</h3>
+<p>Top to bottom: the new type first, then the call site that adopts it, then the class it replaces. Docs and the migration table close the report.</p></section>
+<section><h2 id="key-terms">New terms</h2><dl class="glossary"><dt>Name</dt><dd>New value object wrapping a person&#39;s name, so callers cannot pass an arbitrary string.</dd></dl></section>
+<section><h2 id="how-to-test">How to test locally</h2><pre><code class="language-bash">mvn -q test</code></pre></section>
+<section><h2 id="chapters">Chapters</h2><ol class="chapter-list"><li data-files="src/Name.java"><a href="chapter-01.html">1. The new Name type</a> <span class="muted">1 file, 1 note</span><div class="intro"><p>Everything else depends on this record, so it comes first. It is the type the rest of the change passes around.</p></div></li><li data-files="src/Greeter.java"><a href="chapter-02.html">2. Greeter adopts Name</a> <span class="muted">1 file, 2 notes</span><div class="intro"><p>The only call site. Note the accessor call replacing direct string use; it follows the record because it consumes it.</p></div></li><li data-files="src/Legacy.java"><a href="chapter-03.html">3. Legacy removed</a> <span class="muted">1 file, 1 note</span><div class="intro"><p>Dead class with no references, so removing it is safe. It comes after the call site to show nothing else used it.</p></div></li><li data-files="README.md"><a href="chapter-04.html">4. Usage docs</a> <span class="muted">1 file, 0 notes</span><div class="intro"><p>README gains the build command. Only the usage hunk matters here; the title tweak is in the appendix.</p></div></li><li data-files=""><a href="chapter-05.html">5. Migration checklist</a><div class="intro"><p>Steps for downstream callers, as a table. Read after the code so the actions make sense.</p></div></li><li><a href="other-changes.html">Other changes</a> <span class="muted">6 files</span></li></ol></section>
+<nav class="pager"><span></span><a class="next" href="chapter-01.html">1. The new Name type →</a></nav>
+</main>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/highlight.min.js" integrity="sha384-wjfDDhOPPdjtva8vWBhWeVprSpmxisEu5aYT3q1JyACqXpdKpo3PWZTMVq24MBix" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@12.2.0/dist/mermaid.min.js" integrity="sha384-8xUhuLNMjW/cI2Dacg3DR4WliYznvIg0LVG1stctThKD/YVrJFI9TNCFxft5NYgp" crossorigin="anonymous"></script>
+<script>/* template/report.js */</script>
+</body>
+</html>
+`;
+
+exports[`paged output of the fixture 9`] = `
+<!doctype html>
+<html lang="en" data-theme="light" data-notes="margin" data-diff="unified" data-report-id="greeter-takes-a-name-value-object-980f1fc1">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Other changes · Greeter takes a Name value object</title>
+<script>
+// Apply theme before first paint to avoid a flash. Mirrors report.js logic.
+(function(){try{var d=document.documentElement,t=localStorage.getItem('review-report-theme');if(!t){t=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}d.dataset.theme=t;var n=localStorage.getItem('review-report-notes');if(n==='inline'||n==='margin'){d.dataset.notes=n}var f=localStorage.getItem('review-report-diff');if(f==='split'||f==='unified'){d.dataset.diff=f}}catch(e){}})();
+</script>
+<link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github.min.css" integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L" crossorigin="anonymous">
+<link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/styles/github-dark.min.css" integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH" crossorigin="anonymous" disabled>
+<style>/* template/report.css */</style>
+</head>
+<body>
+<div class="layout">
+<nav class="sidebar">
+  <div class="sidebar-top">
+    <button id="theme-toggle" type="button" title="Toggle light/dark">Theme</button>
+    <button id="notes-toggle" type="button" title="Notes beside the code, or inline between lines">Notes: margin</button>
+    <button id="diff-toggle" type="button" title="Unified diff, or old and new side by side; applies to every file">Diff: unified</button>
+  </div>
+  <ol class="toc">
+    <li><a href="index.html#overview">Overview</a></li>
+    <li><a href="index.html#key-terms">New terms</a></li>
+    <li><a href="index.html#how-to-test">How to test</a></li>
+    <li data-files="src/Name.java"><a href="chapter-01.html">1. The new Name type</a><span class="chapter-progress"></span></li>
+    <li data-files="src/Greeter.java"><a href="chapter-02.html">2. Greeter adopts Name</a><span class="chapter-progress"></span></li>
+    <li data-files="src/Legacy.java"><a href="chapter-03.html">3. Legacy removed</a><span class="chapter-progress"></span></li>
+    <li data-files="README.md"><a href="chapter-04.html">4. Usage docs</a><span class="chapter-progress"></span></li>
+    <li><a href="chapter-05.html">5. Migration checklist</a></li>
+    <li class="current"><a href="other-changes.html">Other changes</a></li>
+  </ol>
+  <h3>Files on this page</h3>
+  <nav class="file-index"><ul><li><a href="#file-5-c" data-file="docs/new näme.md" title="docs/new näme.md"><bdi>docs/new näme.md</bdi></a> <span class="add">+1</span><span class="del">-1</span></li><li><a href="#file-6-c" data-file="img/logo.png" title="img/logo.png"><bdi>img/logo.png</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="#file-7-c" data-file="img/photo.jpg" title="img/photo.jpg"><bdi>img/photo.jpg</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="#file-8-c" data-file="scripts/run.sh" title="scripts/run.sh"><bdi>scripts/run.sh</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="#file-9-c" data-file="docs/renamed.md" title="docs/renamed.md"><bdi>docs/renamed.md</bdi></a> <span class="add">+0</span><span class="del">-0</span></li></ul></nav>
+  <div class="viewed-progress"><span class="viewed-count" data-total="6">0 of 6 viewed</span><div class="rail"><div class="fill"></div></div></div>
+  <details class="all-files"><summary>All files (9)</summary><nav class="file-index"><ul><li><a href="chapter-02.html#file-1-c" data-file="src/Greeter.java" title="src/Greeter.java"><bdi>src/Greeter.java</bdi></a> <span class="add">+3</span><span class="del">-2</span></li><li><a href="chapter-01.html#file-2-c" data-file="src/Name.java" title="src/Name.java"><bdi>src/Name.java</bdi></a> <span class="add">+3</span><span class="del">-0</span></li><li><a href="chapter-03.html#file-3-c" data-file="src/Legacy.java" title="src/Legacy.java"><bdi>src/Legacy.java</bdi></a> <span class="add">+0</span><span class="del">-2</span></li><li><a href="chapter-04.html#file-4-c" data-file="README.md" title="README.md"><bdi>README.md</bdi></a> <span class="add">+2</span><span class="del">-2</span></li><li><a href="other-changes.html#file-5-c" data-file="docs/new näme.md" title="docs/new näme.md"><bdi>docs/new näme.md</bdi></a> <span class="add">+1</span><span class="del">-1</span></li><li><a href="other-changes.html#file-6-c" data-file="img/logo.png" title="img/logo.png"><bdi>img/logo.png</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-7-c" data-file="img/photo.jpg" title="img/photo.jpg"><bdi>img/photo.jpg</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-8-c" data-file="scripts/run.sh" title="scripts/run.sh"><bdi>scripts/run.sh</bdi></a> <span class="add">+0</span><span class="del">-0</span></li><li><a href="other-changes.html#file-9-c" data-file="docs/renamed.md" title="docs/renamed.md"><bdi>docs/renamed.md</bdi></a> <span class="add">+0</span><span class="del">-0</span></li></ul></nav></details>
+</nav>
+<main>
+<header class="report-header">
+  <h1><a href="index.html">Greeter takes a Name value object</a></h1>
+  <p class="target">fixture</p>
+  <p class="coverage">12 of 14 changed lines shown in chapters (86%). Reader pass: 1 round, 2 questions answered, none open.</p>
+  
+</header>
+<nav class="pager"><a class="prev" href="chapter-05.html">← 5. Migration checklist</a><span></span></nav>
+<section><h2 id="appendix">Other changes</h2><p class="muted">Hunks no chapter referenced. Listed so nothing is hidden.</p><section class="file" data-path="README.md" data-hash="4db653e4">
+<header class="file-header"><span class="path">README.md</span><label class="viewed"><input type="checkbox" class="viewed-toggle"> Viewed</label></header>
+<div class="file-body"><div class="diff-col"><table class="diff unified"><colgroup><col class="num"><col class="num"><col class="code"></colgroup><tr class="hunk-header"><td colspan="3">@@ -1,2 +1,2 @@</td></tr><tr class="line ctx" data-old="1" data-new="1"><td class="num old">1</td><td class="num new">1</td><td class="code"><code class="language-markdown"># Demo</code></td></tr><tr class="line del" data-old="2" data-new=""><td class="num old">2</td><td class="num new"></td><td class="code"><code class="language-markdown">Old line</code></td></tr><tr class="line add" data-old="" data-new="2"><td class="num old"></td><td class="num new">2</td><td class="code"><code class="language-markdown">New line</code></td></tr></table></div><aside class="notes-col"></aside></div>
+</section><details class="file excluded" id="file-5-c" data-path="docs/new näme.md"><summary class="file-header"><span class="path">docs/old name.md → docs/new näme.md</span><span class="status renamed">renamed</span><span class="muted">excluded: docs: prose, not code</span></summary>
+<div class="file-body"><div class="diff-col"><table class="diff unified"><colgroup><col class="num"><col class="num"><col class="code"></colgroup><tr class="hunk-header"><td colspan="3">@@ -1 +1 @@</td></tr><tr class="line del" data-old="1" data-new=""><td class="num old">1</td><td class="num new"></td><td class="code"><code class="language-markdown">title</code></td></tr><tr class="line add" data-old="" data-new="1"><td class="num old"></td><td class="num new">1</td><td class="code"><code class="language-markdown">Title</code></td></tr></table></div><aside class="notes-col"></aside></div>
+</details><details class="file excluded" id="file-6-c" data-path="img/logo.png"><summary class="file-header"><span class="path">img/logo.png</span><span class="status added">added</span><span class="muted">excluded: binary</span></summary>
+<div class="file-body"><div class="diff-col"><p class="muted">Binary file, no textual diff.</p></div><aside class="notes-col"></aside></div>
+</details><details class="file excluded" id="file-7-c" data-path="img/photo.jpg"><summary class="file-header"><span class="path">img/photo.jpg</span><span class="muted">excluded: binary</span></summary>
+<div class="file-body"><div class="diff-col"><p class="muted">Binary file, no textual diff.</p></div><aside class="notes-col"></aside></div>
+</details><section class="file" id="file-8-c" data-path="scripts/run.sh" data-hash="dea19c98">
+<header class="file-header"><span class="path">scripts/run.sh</span><label class="viewed"><input type="checkbox" class="viewed-toggle"> Viewed</label></header>
+<div class="file-body"><div class="diff-col"><p class="muted">Mode changed 100644 → 100755, no content change.</p></div><aside class="notes-col"></aside></div>
+</section><section class="file" id="file-9-c" data-path="docs/renamed.md" data-hash="92cb963e">
+<header class="file-header"><span class="path">docs/moved.md → docs/renamed.md</span><span class="status renamed">renamed</span><label class="viewed"><input type="checkbox" class="viewed-toggle"> Viewed</label></header>
+<div class="file-body"><div class="diff-col"><p class="muted">Renamed, no content change.</p></div><aside class="notes-col"></aside></div>
+</section></section>
+<nav class="pager"><a class="prev" href="chapter-05.html">← 5. Migration checklist</a><span></span></nav>
+</main>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.12.0/highlight.min.js" integrity="sha384-wjfDDhOPPdjtva8vWBhWeVprSpmxisEu5aYT3q1JyACqXpdKpo3PWZTMVq24MBix" crossorigin="anonymous"></script>
+<script>/* template/report.js */</script>
+</body>
+</html>
+`;
