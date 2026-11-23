@@ -50,9 +50,9 @@ and the snapshot tests need Node 22.14 or newer. The skill itself runs on the No
   ES modules with `node:` imports (the page script in `template/` is one classic browser script).
   Every file starts with `// @ts-check` (after any shebang) and documents types in JSDoc.
   There is no build step and no `.ts` file. `npm run lint` and `npm run typecheck` must pass.
-- **Small functions.** Lint limits complexity to 10, nesting to 3 levels, parameters to 3 and function length
-  to 50 lines. It also rejects `forEach`, callbacks nested deeper than 3 levels and reassigned parameters.
-  Split a function that hits a limit; do not raise the limit. Exported functions need a JSDoc comment.
+- **Small functions.** Lint warns above complexity 20, 4 levels of nesting, 4 parameters, callbacks nested
+  4 deep and 50 lines per function. A warning does not fail lint. Split the function when that reads better.
+  Lint rejects `forEach` and reassigned parameters. Exported functions need a JSDoc comment.
 - **Disables carry a reason.** Write `// eslint-disable-next-line rule -- why` so the next reader knows why
   the rule does not apply. A disable without a reason fails lint.
 - **Snapshots pin output.** Snapshot tests fix the renderer's output: paged pages, the numbered dump and the

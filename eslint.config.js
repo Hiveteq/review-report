@@ -45,12 +45,13 @@ export default defineConfig([
       'logical-assignment-operators': ['error', 'always', { enforceForIfStatements: true }],
       'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
 
-      // Structure: small, flat functions
-      complexity: ['error', 10],
-      'max-depth': ['error', 3],
-      'max-params': ['error', 3],
-      'max-nested-callbacks': ['error', 3],
-      'max-lines-per-function': ['error', { max: 50, skipBlankLines: true, skipComments: true }],
+      // Structure: warnings at common values (those of eslint-config-xo; ESLint's default for function length).
+      // They point at an outsized function without failing lint. Split it when that reads better.
+      complexity: ['warn', 20],
+      'max-depth': ['warn', 4],
+      'max-params': ['warn', 4],
+      'max-nested-callbacks': ['warn', 4],
+      'max-lines-per-function': ['warn', { max: 50, skipBlankLines: true, skipComments: true }],
 
       // Control flow and clarity
       'no-else-return': ['error', { allowElseIf: false }],

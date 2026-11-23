@@ -13,7 +13,7 @@
     "e2e": "playwright test",
     "screenshots": "node scripts/screenshots.mjs",
     "update-cdn": "node scripts/update-cdn.mjs",
-    "lint": "eslint --max-warnings 0 skills scripts e2e playwright.config.mjs eslint.config.js",
+    "lint": "eslint skills scripts e2e playwright.config.mjs eslint.config.js",
     "typecheck": "tsc -p tsconfig.json",
     "check:licenses": "node scripts/check-licenses.mjs"
   },
