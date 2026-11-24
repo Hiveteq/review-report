@@ -29,7 +29,7 @@ using it; usage is in [README.md](README.md).
 npm test                 # unit, CLI and snapshot tests, no install needed
 npm ci && npx playwright install chromium firefox webkit   # for everything below
 npm test -- --test-update-snapshots   # rewrite the snapshots; read the snapshot diff before committing
-npm run lint             # ESLint: modern JavaScript rules, function limits, JSDoc, no warnings allowed
+npm run lint             # ESLint: modern JavaScript rules, JSDoc; oversized functions only warn
 npm run typecheck        # tsc over tsconfig.json (no emit): JSDoc types
 npm run check:licenses   # every package in package-lock.json must have an allowed permissive licence
 npm run e2e              # browser tests; run them for any change to template/ or lib/html.mjs
@@ -65,6 +65,9 @@ and the snapshot tests need Node 22.14 or newer. The skill itself runs on the No
 - **New JavaScript files.** A file outside the folders already checked must be added to both the `lint` script in
   `package.json` and the `include` list in `tsconfig.json`; otherwise a check may miss it.
 - **No runtime dependencies.** The renderer runs with a bare `node`. Playwright is for the browser check only.
+- **A portable core.** The modules in `lib/`, except `git.mjs`, use no Node-only API: no `node:` import,
+  no `Buffer`, no `process`. They turn a diff and a story into a report and can run wherever JavaScript runs.
+  Lint enforces it. The one exception is the SHA-1 import in `html.mjs`, marked with its reason.
 - **Tests first.** A change to `lib/` or `render.mjs` comes with a test that failed before the change.
 - **Portable code.** Spawn processes with `execFileSync` or `spawnSync` and an argument array, never a shell.
   Build paths with `node:path`. Line endings are LF everywhere (`.gitattributes`).

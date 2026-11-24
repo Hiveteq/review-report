@@ -116,4 +116,19 @@ export default defineConfig([
       }],
     },
   },
+  {
+    // The renderer core turns a diff and a story into a report without touching its surroundings, so it can
+    // run wherever JavaScript runs, a browser included. Only git.mjs talks to the machine.
+    files: ['skills/review-report/lib/*.mjs'],
+    ignores: ['skills/review-report/lib/git.mjs'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [{ group: ['node:*'], message: 'The renderer core uses no Node-only module.' }],
+      }],
+      'no-restricted-globals': ['error',
+        { name: 'Buffer', message: 'Use Uint8Array, TextEncoder and TextDecoder: they exist outside Node too.' },
+        { name: 'process', message: 'The renderer core reads no process state; pass values in.' },
+      ],
+    },
+  },
 ]);

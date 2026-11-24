@@ -52,207 +52,97 @@ const GIT_LINE = 'diff --git ';
 // `@@ -oldStart,oldCount +newStart,newCount @@ header`. git leaves out a count of 1.
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@ ?(.*)$/;
 
-/** @typedef {readonly [prefix: string, fields: (rest: string) => Partial<FileHeader>]} HeaderLine */
-
-/**
- * One rule of HEADER_LINES, frozen so the shared table cannot be changed by a caller.
- * @param {string} prefix
- * @param {(rest: string) => Partial<FileHeader>} fields
- * @returns {HeaderLine}
- */
-function headerLine(prefix, fields) {
-  return Object.freeze(/** @type {const} */ ([prefix, fields]));
-}
-
 /**
  * The file header lines that carry information, each with the fields it sets from the text after its prefix.
- * git prints them in varying order, so every line is matched on its own. Other header lines, such as
- * `index` and `similarity index`, carry nothing the report shows.
- * @type {ReadonlyArray<HeaderLine>}
+ * Other header lines, such as `index` and `similarity index`, carry nothing the report shows.
+ * @type {[prefix: string, fields: (rest: string) => Partial<FileHeader>][]}
  */
-const HEADER_LINES = Object.freeze([
-  headerLine('--- ', (rest) => ({ oldPath: headerPath(rest) })),
-  headerLine('+++ ', (rest) => ({ newPath: headerPath(rest) })),
-  headerLine('new file mode ', (rest) => ({ status: 'added', newMode: rest.trim() })),
-  headerLine('deleted file mode ', (rest) => ({ status: 'deleted', oldMode: rest.trim() })),
-  headerLine('rename from ', (rest) => ({ status: 'renamed', oldPath: unquotePath(rest) })),
-  headerLine('rename to ', (rest) => ({ newPath: unquotePath(rest) })),
-  headerLine('old mode ', (rest) => ({ oldMode: rest.trim() })),
-  headerLine('new mode ', (rest) => ({ newMode: rest.trim() })),
-  headerLine('Binary files', () => ({ binary: true })),
-]);
+const HEADER_LINES = [
+  ['--- ', (rest) => ({ oldPath: headerPath(rest) })],
+  ['+++ ', (rest) => ({ newPath: headerPath(rest) })],
+  ['new file mode ', (rest) => ({ status: 'added', newMode: rest.trim() })],
+  ['deleted file mode ', (rest) => ({ status: 'deleted', oldMode: rest.trim() })],
+  ['rename from ', (rest) => ({ status: 'renamed', oldPath: unquotePath(rest) })],
+  ['rename to ', (rest) => ({ newPath: unquotePath(rest) })],
+  ['old mode ', (rest) => ({ oldMode: rest.trim() })],
+  ['new mode ', (rest) => ({ newMode: rest.trim() })],
+  ['Binary files', () => ({ binary: true })],
+];
+
+/** The marker each kind of hunk line carries, for the numbered dump. */
+const MARKER = { add: '+', del: '-', ctx: ' ' };
 
 /**
- * A hunk body line's kind, by its first character.
- * @type {ReadonlyMap<string, DiffLine['type']>}
- */
-const LINE_KIND = new Map([['+', 'add'], ['-', 'del'], [' ', 'ctx']]);
-
-/**
- * The marker each kind of line carries, the inverse of LINE_KIND.
- * @type {Readonly<Record<DiffLine['type'], string>>}
- */
-const MARKER = /** @type {Record<DiffLine['type'], string>} */ (
-  Object.freeze(Object.fromEntries([...LINE_KIND].map(([marker, type]) => [type, marker])))
-);
-
-/**
+ * One pass over the lines, as a state machine. A `diff --git` line opens a file. Until the file's first
+ * `@@` line, its lines are header lines. After it, they are hunk body lines, numbered from the `@@` counts.
+ * So a body line that looks like a header line (`--- x` deleting "-- x") is never read as one.
  * @param {string} text unified diff, as `git diff` prints it
  * @returns {DiffFile[]}
  */
 export function parseDiff(text) {
-  // Text before the first `diff --git` line (a commit message, say) belongs to no file.
-  return cutAt(diffLines(text), startFile).runs.map(readFile);
-}
+  /** @type {DiffFile[]} */
+  const files = [];
+  /** @type {DiffFile | null} */
+  let file = null;
+  /** @type {Hunk | null} */
+  let hunk = null;
+  // The next number on each side, and where the side ends: the @@ counts say how many lines the hunk owes.
+  let oldNo = 0;
+  let newNo = 0;
+  let oldEnd = 0;
+  let newEnd = 0;
 
-/**
- * A BOM (some Windows editors add one when a diff is saved) would hide the first `diff --git`.
- * @param {string} text
- * @returns {string[]}
- */
-function diffLines(text) {
-  return text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').split('\n');
-}
+  // A BOM (some Windows editors add one when a diff is saved) would hide the first `diff --git`.
+  for (const raw of text.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').split('\n')) {
+    if (raw.startsWith(GIT_LINE)) {
+      const [oldPath, newPath] = splitGitLine(raw.slice(GIT_LINE.length));
+      file = { path: '', oldPath, newPath, status: 'modified', binary: false, oldMode: null, newMode: null, hunks: [] };
+      files.push(file);
+      hunk = null;
+      continue;
+    }
+    // Text before the first `diff --git` line (a commit message, say) belongs to no file.
+    if (!file) continue;
 
-/**
- * Lines opened by a line that `startOf` recognised, with what it read from that line.
- * @template T
- * @typedef {{ start: T, body: string[] }} Run
- */
+    if (raw.startsWith('@@')) {
+      const match = HUNK_HEADER.exec(raw);
+      if (!match) continue; // a malformed @@ line starts nothing
+      const [, oldStart, oldCount = '1', newStart, newCount = '1', header] = match;
+      hunk = { oldStart: Number(oldStart), newStart: Number(newStart), header, lines: [] };
+      file.hunks.push(hunk);
+      oldNo = hunk.oldStart;
+      newNo = hunk.newStart;
+      oldEnd = oldNo + Number(oldCount);
+      newEnd = newNo + Number(newCount);
+      continue;
+    }
 
-/**
- * Cuts lines into runs, each opened by a line `startOf` recognises; `before` holds the lines ahead of
- * the first one. Each run keeps what `startOf` read from its opening line, so no line is parsed twice.
- * @template T
- * @param {string[]} lines
- * @param {(line: string) => T | null} startOf what an opening line says; null for any other line
- * @returns {{ before: string[], runs: Run<T>[] }}
- */
-function cutAt(lines, startOf) {
-  const opens = lines.flatMap((line, at) => {
-    const start = startOf(line);
-    return start === null ? [] : [{ at, start }];
-  });
-  const ends = [...opens.slice(1).map(({ at }) => at), lines.length];
-  return {
-    before: lines.slice(0, opens[0]?.at ?? lines.length),
-    runs: opens.map(({ at, start }, k) => ({ start, body: lines.slice(at + 1, ends[k]) })),
-  };
-}
+    if (!hunk) {
+      // A header line. git prints them in varying order, so each is matched on its own. They are applied
+      // one at a time: a `--binary` patch puts many thousands of base85 lines here, too many to spread.
+      const rule = HEADER_LINES.find(([prefix]) => raw.startsWith(prefix));
+      if (!rule) continue;
+      const [prefix, fields] = rule;
+      Object.assign(file, fields(raw.slice(prefix.length)));
+      continue;
+    }
 
-/**
- * One file: its header lines, then its hunks. The header ends at the first `@@` line, so a hunk body
- * line that happens to look like a header line is never read as one. An `@@` line that does not parse
- * starts nothing; it is skipped like any other unknown line.
- * @param {Run<FileHeader>} run what the `diff --git` line said, and every line up to the next one
- * @returns {DiffFile}
- */
-function readFile({ start, body }) {
-  const { before: headerLines, runs: hunkRuns } = cutAt(body, startHunk);
-  /**
-   * Merged entry by entry, later lines winning. Passing every line to one call as spread arguments
-   * overflows the stack on a large `--binary` patch, whose base85 lines all sit in the header.
-   * @type {Partial<FileHeader>}
-   */
-  const fields = Object.fromEntries(headerLines.flatMap((raw) => Object.entries(readHeaderLine(raw))));
-  const header = { ...start, ...fields };
-  return { path: displayPath(header), ...header, hunks: hunkRuns.map(readHunk) };
-}
-
-/**
- * What a `diff --git` line says before the header lines are read: its two paths, modified.
- * @param {string} raw
- * @returns {FileHeader | null} null for any other line
- */
-function startFile(raw) {
-  if (!raw.startsWith(GIT_LINE)) return null;
-  const [oldPath, newPath] = splitGitLine(raw.slice(GIT_LINE.length));
-  return { oldPath, newPath, status: 'modified', binary: false, oldMode: null, newMode: null };
-}
-
-/**
- * The fields one header line sets; none for a line that carries nothing the report shows.
- * @param {string} raw
- * @returns {Partial<FileHeader>}
- */
-function readHeaderLine(raw) {
-  const rule = HEADER_LINES.find(([prefix]) => raw.startsWith(prefix));
-  if (!rule) return {};
-  const [prefix, fields] = rule;
-  return fields(raw.slice(prefix.length));
-}
-
-/**
- * @param {FileHeader} header
- * @returns {string} the old path for a deleted file, the new path otherwise
- */
-function displayPath(header) {
-  return header.status === 'deleted' || header.newPath === '/dev/null' ? header.oldPath : header.newPath;
-}
-
-/**
- * @param {Run<HunkStart>} run what the `@@` line said, and every line up to the next `@@` line or file
- * @returns {Hunk}
- */
-function readHunk({ start, body }) {
-  const { oldStart, newStart, header } = start;
-  return { oldStart, newStart, header, lines: numberLines(start, body.flatMap(readBodyLine)) };
-}
-
-/**
- * Where a hunk starts on each side, how many lines it spans there, and the text after its closing `@@`.
- * @typedef {{ oldStart: number, oldCount: number, newStart: number, newCount: number, header: string }} HunkStart
- */
-
-/**
- * @param {string} raw
- * @returns {HunkStart | null} null for a line that is not a well-formed `@@` line
- */
-function startHunk(raw) {
-  const match = HUNK_HEADER.exec(raw);
-  if (!match) return null;
-  const [, oldStart, oldCount = '1', newStart, newCount = '1', header] = match;
-  return { oldStart: Number(oldStart), oldCount: Number(oldCount), newStart: Number(newStart), newCount: Number(newCount), header };
-}
-
-/** @typedef {{ type: DiffLine['type'], content: string }} BodyLine a hunk body line before it is numbered */
-
-/**
- * A hunk body line as its kind and content; nothing for a line that is not diff content.
- * @param {string} raw
- * @returns {BodyLine[]}
- */
-function readBodyLine(raw) {
-  // A blank context line is " ". Editors trim it to "" when a diff is saved to a file;
-  // the counts still owe a line, so it is read as the blank context line it was.
-  const type = LINE_KIND.get(raw === '' ? ' ' : raw[0]);
-  // Any other line, such as `\ No newline at end of file`, carries no content and takes no number.
-  return type ? [{ type, content: raw.slice(1) }] : [];
-}
-
-/**
- * @param {HunkStart} start
- * @param {BodyLine[]} body
- * @returns {DiffLine[]}
- */
-function numberLines({ oldStart, oldCount, newStart, newCount }, body) {
-  // The @@ counts say how many lines the hunk owes on each side; a side is spent once its number reaches the end.
-  const oldEnd = oldStart + oldCount;
-  const newEnd = newStart + newCount;
-  let oldNo = oldStart;
-  let newNo = newStart;
-  /** @type {DiffLine[]} */
-  const lines = [];
-  // A state machine: each line takes the next number on every side it exists on.
-  for (const { type, content } of body) {
     // Once both counts are spent the hunk is complete. Whatever follows before the
     // next @@ or diff --git line (a format-patch signature, mail text) is not diff content.
-    if (oldNo >= oldEnd && newNo >= newEnd) break;
-    if (type === 'add') lines.push({ type, old: null, new: newNo++, content });
-    else if (type === 'del') lines.push({ type, old: oldNo++, new: null, content });
-    else lines.push({ type, old: oldNo++, new: newNo++, content });
+    if (oldNo >= oldEnd && newNo >= newEnd) continue;
+    // A blank context line is " ". Editors trim it to "" when a diff is saved to a file;
+    // the counts still owe a line, so it is read as the blank context line it was.
+    const marker = raw === '' ? ' ' : raw[0];
+    const content = raw.slice(1);
+    if (marker === '+') hunk.lines.push({ type: 'add', old: null, new: newNo++, content });
+    else if (marker === '-') hunk.lines.push({ type: 'del', old: oldNo++, new: null, content });
+    else if (marker === ' ') hunk.lines.push({ type: 'ctx', old: oldNo++, new: newNo++, content });
+    // Any other line, such as `\ No newline at end of file`, carries no content and takes no number.
   }
-  return lines;
+
+  // The path to show: the old one for a deleted file, the new one otherwise.
+  for (const f of files) f.path = f.status === 'deleted' || f.newPath === '/dev/null' ? f.oldPath : f.newPath;
+  return files;
 }
 
 /**
@@ -304,47 +194,33 @@ function quotedTokens(s) {
   while (i < s.length && out.length < 2) {
     if (s[i] === ' ') {
       i++;
-      continue;
+    } else if (s[i] === '"') {
+      // A quoted side runs to the closing quote; an escaped quote does not end it.
+      let j = i + 1;
+      while (j < s.length && s[j] !== '"') j += s[j] === '\\' ? 2 : 1;
+      out.push(unquotePath(s.slice(i, j + 1)));
+      i = j + 1;
+    } else {
+      // An unquoted side runs to the space before the next quoted token, or to the end.
+      const q = s.indexOf(' "', i);
+      const end = q === -1 ? s.length : q;
+      out.push(s.slice(i, end));
+      i = end;
     }
-    const { token, end } = s[i] === '"' ? quotedTokenAt(s, i) : plainTokenAt(s, i);
-    out.push(token);
-    i = end;
   }
   return out.length === 2 ? out : null;
 }
 
 /**
- * A C-quoted token starting at the opening quote at i, unquoted. Escaped quotes do not end it.
- * @param {string} s
- * @param {number} i
- * @returns {{ token: string, end: number }} end is the index just past the closing quote
+ * The byte each single-letter escape in a C-quoted path stands for.
+ * @type {Record<string, number>}
  */
-function quotedTokenAt(s, i) {
-  let j = i + 1;
-  while (j < s.length && s[j] !== '"') j += s[j] === '\\' ? 2 : 1;
-  return { token: unquotePath(s.slice(i, j + 1)), end: j + 1 };
-}
+const C_ESCAPES = { t: 9, n: 10, r: 13, '"': 34, '\\': 92, a: 7, b: 8, f: 12, v: 11 };
 
-/**
- * An unquoted token starting at i: it runs to the space before the next quoted token, or to the end.
- * @param {string} s
- * @param {number} i
- * @returns {{ token: string, end: number }}
- */
-function plainTokenAt(s, i) {
-  const q = s.indexOf(' "', i);
-  const end = q === -1 ? s.length : q;
-  return { token: s.slice(i, end), end };
-}
-
+// TextEncoder and TextDecoder, not Node's Buffer: this module also has to run where there is no Node.
+// The decoder drops a leading byte-order mark, as this decoding always has.
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder('utf-8');
-
-/**
- * The byte each single-letter escape in a C-quoted path stands for.
- * @type {Readonly<Record<string, number>>}
- */
-const C_ESCAPES = Object.freeze({ t: 9, n: 10, r: 13, '"': 34, '\\': 92, a: 7, b: 8, f: 12, v: 11 });
 
 /**
  * git quotes paths with unusual bytes as C strings: "caf\303\251.txt".
@@ -356,31 +232,17 @@ const C_ESCAPES = Object.freeze({ t: 9, n: 10, r: 13, '"': 34, '\\': 92, a: 7, b
  */
 export function unquotePath(p) {
   if (!(p.length >= 2 && p.startsWith('"') && p.endsWith('"'))) return p;
-  const inner = p.slice(1, -1);
-  /** @type {number[]} */
-  const bytes = [];
-  let literal = '';
-  const flush = () => {
-    for (const b of utf8Encoder.encode(literal)) bytes.push(b);
-    literal = '';
-  };
-  for (let i = 0; i < inner.length; i++) {
-    const ch = inner[i];
-    if (ch !== '\\') { literal += ch; continue; }
-    flush();
-    const next = inner[i + 1];
-    if (next === undefined) { bytes.push(92); break; } // dangling backslash in malformed input: keep it
-    if (/[0-7]/.test(next)) {
-      // Cannot be null: the test above saw an octal digit right after the backslash.
-      const oct = /** @type {RegExpMatchArray} */ (inner.slice(i + 1, i + 4).match(/^[0-7]{1,3}/))[0];
-      bytes.push(parseInt(oct, 8));
-      i += oct.length;
-    } else {
-      bytes.push(C_ESCAPES[next] ?? next.charCodeAt(0));
-      i += 1;
-    }
-  }
-  flush();
+  // The capture group keeps each escape in the split: literal runs sit at even indexes, escapes at odd ones.
+  // A lone backslash at the end (malformed input) is an escape with nothing after it, and is kept.
+  const parts = p.slice(1, -1).split(/(\\[0-7]{1,3}|\\.?)/s);
+  const bytes = parts.flatMap((part, k) => {
+    if (k % 2 === 0) return [...utf8Encoder.encode(part)];
+    const escaped = part.slice(1);
+    if (escaped === '') return [92];
+    if (/^[0-7]/.test(escaped)) return [parseInt(escaped, 8)];
+    return [C_ESCAPES[escaped] ?? escaped.charCodeAt(0)];
+  });
+  // Uint8Array.from keeps the low 8 bits of each number, so an out-of-range octal such as \777 becomes byte 0xff.
   return utf8Decoder.decode(Uint8Array.from(bytes));
 }
 
@@ -412,12 +274,18 @@ function hunkRange(start, count) {
  * @returns {{ adds: number, dels: number, rows: number }}
  */
 export function lineStats(file) {
-  const lines = file.hunks.flatMap((h) => h.lines);
-  return {
-    adds: lines.filter((l) => l.type === 'add').length,
-    dels: lines.filter((l) => l.type === 'del').length,
-    rows: lines.length,
-  };
+  let adds = 0;
+  let dels = 0;
+  let rows = 0;
+  // Plain counting loops: the report asks for these numbers several times per file.
+  for (const { lines } of file.hunks) {
+    rows += lines.length;
+    for (const { type } of lines) {
+      if (type === 'add') adds++;
+      else if (type === 'del') dels++;
+    }
+  }
+  return { adds, dels, rows };
 }
 
 /**
@@ -439,7 +307,7 @@ export function formatNumbered(files) {
 function numberedFileLines(f) {
   const reason = headerOnlyReason(f);
   if (reason) return [numberedTitle(f), `(${reason})`];
-  return [numberedTitle(f), '  old   new  line', ...f.hunks.flatMap(numberedHunkLines)];
+  return [numberedTitle(f), '  old   new  line', ...f.hunks.flatMap((h) => [hunkLabel(h), ...h.lines.map(numberedLine)])];
 }
 
 /**
@@ -450,14 +318,6 @@ function numberedTitle(f) {
   const how = f.status === 'renamed' ? `renamed from ${f.oldPath}` : f.status;
   const mode = f.hunks.length ? modeNote(f) : null; // header-only files say it in their reason line
   return `=== ${f.path} (${how}${mode ? `, ${mode}` : ''})`;
-}
-
-/**
- * @param {Hunk} h
- * @returns {string[]}
- */
-function numberedHunkLines(h) {
-  return [hunkLabel(h), ...h.lines.map(numberedLine)];
 }
 
 /**
@@ -493,43 +353,29 @@ export function headerOnlyKind(f) {
 }
 
 /**
- * An empty file added or deleted says so. Otherwise an empty entry is a pure copy, where nothing changed.
- * @param {DiffFile} f
- * @returns {boolean}
- */
-function isEmptyFileChange(f) {
-  return f.status === 'added' || f.status === 'deleted';
-}
-
-/** @typedef {{ readonly reason: (f: DiffFile) => string, readonly sentence: (f: DiffFile) => string }} HeaderOnlyWording */
-
-/**
  * How each kind of header-only file is described, as plain text: `reason` is the short form in the numbered
  * dump, `sentence` stands in the report where the diff table would be.
- * @type {Readonly<Record<HeaderOnlyKind, HeaderOnlyWording>>}
+ * An empty file added or deleted says so. Any other empty entry is a pure copy, where nothing changed.
+ * @type {Record<HeaderOnlyKind, { reason: (f: DiffFile) => string, sentence: (f: DiffFile) => string }>}
  */
-export const HEADER_ONLY = Object.freeze({
-  binary: wording(() => 'binary', () => 'Binary file, no textual diff.'),
-  mode: wording(
-    (f) => `mode ${f.oldMode} → ${f.newMode}, no content change`,
-    (f) => `Mode changed ${f.oldMode} → ${f.newMode}, no content change.`,
-  ),
-  rename: wording(() => 'no content change', () => 'Renamed, no content change.'),
-  empty: wording(
-    (f) => (isEmptyFileChange(f) ? 'empty file' : 'no content change'),
-    (f) => (isEmptyFileChange(f) ? `Empty file ${f.status}.` : 'No content change.'),
-  ),
-});
-
-/**
- * One entry of HEADER_ONLY, frozen so the shared table cannot be changed by a caller.
- * @param {(f: DiffFile) => string} reason
- * @param {(f: DiffFile) => string} sentence
- * @returns {HeaderOnlyWording}
- */
-function wording(reason, sentence) {
-  return Object.freeze({ reason, sentence });
-}
+export const HEADER_ONLY = {
+  binary: {
+    reason: () => 'binary',
+    sentence: () => 'Binary file, no textual diff.',
+  },
+  mode: {
+    reason: (f) => `mode ${f.oldMode} → ${f.newMode}, no content change`,
+    sentence: (f) => `Mode changed ${f.oldMode} → ${f.newMode}, no content change.`,
+  },
+  rename: {
+    reason: () => 'no content change',
+    sentence: () => 'Renamed, no content change.',
+  },
+  empty: {
+    reason: (f) => (f.status === 'added' || f.status === 'deleted' ? 'empty file' : 'no content change'),
+    sentence: (f) => (f.status === 'added' || f.status === 'deleted' ? `Empty file ${f.status}.` : 'No content change.'),
+  },
+};
 
 /**
  * The kind as one line of text for the numbered dump; null when the file has hunks.

@@ -99,21 +99,15 @@
  * @property {AppendixEntry[]} appendix
  * @property {string[]} errors problems that stop the render
  * @property {string[]} warnings likely mistakes, printed but not fatal
+ * @property {Set<DiffLine>} shownLines every parsed line object some chapter shows, for the coverage count
  */
 
 /**
- * What one hunk ref adds to the report. buildReport merges these, so no step writes into a shared list.
- * @typedef {object} RefPick
- * @property {Selection | null} selection null when the ref names no file or no hunk of the diff; errors says which
- * @property {string[]} errors
- * @property {string[]} warnings
- * @property {Hunk[]} touched the parsed hunks the ref showed any part of, even a slice that came out empty
- * @property {DiffLine[]} shown the parsed line objects the ref showed, never copies of them
- */
-
-/**
- * One check on an object of the story. When isBad holds, the problem is reported as `<path>.<problem>`.
- * @typedef {readonly [isBad: (fields: Record<string, unknown>) => boolean, problem: string]} Rule
+ * Collects the problems buildReport finds while it walks the story's hunk refs, into lists buildReport owns.
+ * Calls arrive in walk order, so the messages keep the order of the story.
+ * @typedef {object} Problems
+ * @property {(message: string) => void} error a problem that stops the render
+ * @property {(message: string) => void} warning a likely mistake, printed but not fatal
  */
 
 /**
@@ -137,7 +131,7 @@ const isObject = (v) => typeof v === 'object' && v !== null;
 const fieldsOf = (v) => (isObject(v) ? v : {});
 
 /**
- * A single object where a list is expected is a likely slip. Its validator reports that as an
+ * A single object where a list is expected is a likely slip. Its check reports that as an
  * error line, and here it reads as an empty list, so walking its items cannot throw a TypeError.
  * @param {unknown} v
  * @returns {unknown[]}
@@ -150,18 +144,6 @@ const asArray = (v) => (Array.isArray(v) ? v : []);
  * @returns {boolean}
  */
 const isIntegerAtLeast = (v, min) => typeof v === 'number' && Number.isInteger(v) && v >= min;
-
-/**
- * The problems a list of rules finds in one object of the story, each prefixed with the object's path.
- * @param {ReadonlyArray<Rule>} rules
- * @param {unknown} value
- * @param {string} path
- * @returns {string[]}
- */
-function brokenRules(rules, value, path) {
-  const fields = fieldsOf(value);
-  return rules.filter(([isBad]) => isBad(fields)).map(([, problem]) => `${path}.${problem}`);
-}
 
 // Sentence count for the two-sentence rule. Intl.Segmenter knows the sentence
 // terminators of every script (。！？ as well as .!?) and does not break after
@@ -192,180 +174,123 @@ function validLines(lines) {
 }
 
 // The overview is the big picture. Each part is Markdown and each is required.
-export const OVERVIEW_PARTS = ['bigPicture', 'why', 'approach', 'howToRead'];
+const OVERVIEW_PARTS = ['bigPicture', 'why', 'approach', 'howToRead'];
 // The parts that describe the shape of the change, where its diagram belongs.
 const DIAGRAM_PARTS = ['bigPicture', 'approach'];
 const MERMAID_FENCE = /^```mermaid\s*$/m;
-
-/** @type {ReadonlyArray<Rule>} */
-const READER_PASS_RULES = Object.freeze([
-  [(pass) => !isIntegerAtLeast(pass.rounds, 1), 'rounds must be at least 1'],
-  [(pass) => !isIntegerAtLeast(pass.questionsAnswered, 0), 'questionsAnswered must be a non-negative integer'],
-  [(pass) => !isIntegerAtLeast(pass.openQuestions, 0), 'openQuestions must be a non-negative integer'],
-]);
-
-/** @type {ReadonlyArray<Rule>} */
-const GLOSSARY_ENTRY_RULES = Object.freeze([
-  [(entry) => !nonEmpty(entry.term), 'term is required'],
-  [(entry) => !nonEmpty(entry.meaning), 'meaning is required'],
-]);
-
-/** @type {ReadonlyArray<Rule>} */
-const EXCLUDE_ENTRY_RULES = Object.freeze([
-  [(entry) => !nonEmpty(entry.glob), 'glob is required'],
-  [(entry) => !nonEmpty(entry.reason), 'reason is required'],
-]);
-
-/** @type {ReadonlyArray<Rule>} */
-const CHAPTER_RULES = Object.freeze([
-  [(ch) => !nonEmpty(ch.title), 'title is required'],
-  [(ch) => !nonEmpty(ch.intro), 'intro is required'],
-  [(ch) => nonEmpty(ch.intro) && sentenceCount(ch.intro) < 2, 'intro must have at least two sentences: what this chapter shows, and why it follows the previous one'],
-  [(ch) => ch.hunks !== undefined && !Array.isArray(ch.hunks), 'hunks must be an array'],
-]);
-
-/** @type {ReadonlyArray<Rule>} */
-const HUNK_REF_RULES = Object.freeze([
-  [(ref) => !nonEmpty(ref.file), 'file is required'],
-  [(ref) => !validLines(ref.lines), 'lines must be "all" or [start, end] integers with start <= end'],
-  [(ref) => ref.covers !== undefined && typeof ref.covers !== 'string', 'covers must be text'],
-  [(ref) => ref.slice === true && !Array.isArray(ref.lines), 'slice needs lines as [start, end]'],
-  [(ref) => ref.comments !== undefined && !Array.isArray(ref.comments), 'comments must be an array'],
-]);
-
-/** @type {ReadonlyArray<Rule>} */
-const COMMENT_RULES = Object.freeze([
-  [(c) => !Number.isInteger(c.line), 'line must be an integer'],
-  [(c) => c.side !== undefined && c.side !== 'old' && c.side !== 'new', 'side must be "old" or "new"'],
-  [(c) => !nonEmpty(c.text), 'text is required'],
-]);
-
-/** @typedef {(value: unknown, path: string) => string[]} Validator */
-
-/**
- * The story's top-level fields with their validators. Problems are listed in this order.
- * @type {ReadonlyArray<readonly [field: string, validate: Validator]>}
- */
-const SECTIONS = Object.freeze([
-  ['meta', validateMeta],
-  ['overview', validateOverview],
-  ['howToTest', validateHowToTest],
-  ['glossary', validateGlossary],
-  ['diagrams', validateLegacyDiagrams],
-  ['tests', validateTests],
-  ['exclude', validateExclude],
-  ['chapters', validateChapters],
-]);
 
 /**
  * @param {unknown} story parsed JSON of any shape; checking that shape is this function's job
  * @returns {string[]} every problem found, each with its path in the story; empty when valid
  */
 export function validateStory(story) {
-  const fields = fieldsOf(story);
-  return SECTIONS.flatMap(([field, validate]) => validate(fields[field], field));
-}
+  const { meta, overview, howToTest, glossary, diagrams, tests, exclude, chapters } = fieldsOf(story);
+  const errors = [...validateMeta(meta), ...validateOverview(overview)];
+  if (howToTest !== undefined && typeof howToTest !== 'string') errors.push('howToTest must be a string');
 
-/** @type {Validator} */
-function validateMeta(meta, path) {
-  const fields = fieldsOf(meta);
-  return [
-    ...(nonEmpty(fields.title) ? [] : [`${path}.title is required`]),
-    ...validateReaderPass(fields.readerPass, `${path}.readerPass`),
-  ];
+  if (glossary !== undefined && !Array.isArray(glossary)) errors.push('glossary must be an array of { term, meaning }');
+  for (const [i, entry] of asArray(glossary).entries()) {
+    const { term, meaning } = fieldsOf(entry);
+    if (!nonEmpty(term)) errors.push(`glossary[${i}].term is required`);
+    if (!nonEmpty(meaning)) errors.push(`glossary[${i}].meaning is required`);
+  }
+
+  // An earlier story format listed diagrams in a field of their own. Naming their new place
+  // is kinder than dropping them without a word.
+  if (diagrams !== undefined) errors.push('diagrams is no longer a story field: put ```mermaid fences inside overview parts or chapter intros');
+
+  // Which files are tests is the story's call: the writer knows the project's stack, the tool does not.
+  const testsOk = tests === undefined || (Array.isArray(tests) && tests.every((glob) => typeof glob === 'string'));
+  if (!testsOk) errors.push('tests must be an array of globs for this project\'s test files');
+
+  errors.push(...validateExclude(exclude));
+
+  if (!Array.isArray(chapters) || chapters.length === 0) return [...errors, 'chapters must be a non-empty array'];
+  return [...errors, ...chapters.flatMap((chapter, i) => validateChapter(chapter, `chapters[${i}]`))];
 }
 
 /**
- * Absence is allowed: the pass needs a rendered report to read. render.mjs prints a warning and the header says "not yet run".
- * @type {Validator}
+ * @param {unknown} meta
+ * @returns {string[]}
  */
-function validateReaderPass(pass, path) {
-  if (pass === undefined) return [];
-  if (!isObject(pass)) return [`${path} must be { rounds, openQuestions }`];
-  return brokenRules(READER_PASS_RULES, pass, path);
+function validateMeta(meta) {
+  const { title, readerPass } = fieldsOf(meta);
+  const errors = nonEmpty(title) ? [] : ['meta.title is required'];
+  // Absence is allowed: the pass needs a rendered report to read. render.mjs prints a warning and the header says "not yet run".
+  if (readerPass === undefined) return errors;
+  if (!isObject(readerPass)) return [...errors, 'meta.readerPass must be { rounds, openQuestions }'];
+  if (!isIntegerAtLeast(readerPass.rounds, 1)) errors.push('meta.readerPass.rounds must be at least 1');
+  if (!isIntegerAtLeast(readerPass.questionsAnswered, 0)) errors.push('meta.readerPass.questionsAnswered must be a non-negative integer');
+  if (!isIntegerAtLeast(readerPass.openQuestions, 0)) errors.push('meta.readerPass.openQuestions must be a non-negative integer');
+  return errors;
 }
 
-/** @type {Validator} */
-function validateOverview(overview, path) {
-  if (!isObject(overview) || Array.isArray(overview)) return [`${path} must be an object with bigPicture, why, approach and howToRead`];
-  const missing = OVERVIEW_PARTS.filter((part) => !nonEmpty(overview[part])).map((part) => `${path}.${part} is required`);
+/**
+ * @param {unknown} overview
+ * @returns {string[]}
+ */
+function validateOverview(overview) {
+  if (!isObject(overview) || Array.isArray(overview)) return ['overview must be an object with bigPicture, why, approach and howToRead'];
+  const errors = OVERVIEW_PARTS.filter((part) => !nonEmpty(overview[part])).map((part) => `overview.${part} is required`);
   // String() spells out the conversion RegExp.test applies to a part that is not text.
   const hasDiagram = DIAGRAM_PARTS.some((part) => MERMAID_FENCE.test(String(overview[part] ?? '')));
-  return hasDiagram ? missing : [...missing, `${path} needs at least one \`\`\`mermaid diagram inside bigPicture or approach`];
-}
-
-/** @type {Validator} */
-function validateHowToTest(howToTest, path) {
-  return howToTest === undefined || typeof howToTest === 'string' ? [] : [`${path} must be a string`];
-}
-
-/** @type {Validator} */
-function validateGlossary(glossary, path) {
-  const shape = glossary === undefined || Array.isArray(glossary) ? [] : [`${path} must be an array of { term, meaning }`];
-  return [...shape, ...asArray(glossary).flatMap((entry, i) => brokenRules(GLOSSARY_ENTRY_RULES, entry, `${path}[${i}]`))];
+  if (!hasDiagram) errors.push('overview needs at least one ```mermaid diagram inside bigPicture or approach');
+  return errors;
 }
 
 /**
- * An earlier story format listed diagrams in a field of their own. Naming their new place
- * is kinder than dropping them without a word.
- * @type {Validator}
+ * @param {unknown} exclude
+ * @returns {string[]}
  */
-function validateLegacyDiagrams(diagrams, path) {
-  return diagrams === undefined ? [] : [`${path} is no longer a story field: put \`\`\`mermaid fences inside overview parts or chapter intros`];
+function validateExclude(exclude) {
+  const errors = exclude === undefined || Array.isArray(exclude) ? [] : ['exclude must be an array of { glob, reason }'];
+  for (const [i, entry] of asArray(exclude).entries()) {
+    if (!isObject(entry)) {
+      errors.push(`exclude[${i}] must be { glob, reason }`);
+      continue;
+    }
+    if (!nonEmpty(entry.glob)) errors.push(`exclude[${i}].glob is required`);
+    if (!nonEmpty(entry.reason)) errors.push(`exclude[${i}].reason is required`);
+  }
+  return errors;
 }
 
 /**
- * Which files are tests is the story's call: the writer knows the project's stack, the tool does not.
- * @type {Validator}
+ * @param {unknown} chapter
+ * @param {string} at where the chapter sits in the story, such as chapters[0]
+ * @returns {string[]}
  */
-function validateTests(tests, path) {
-  if (tests === undefined || (Array.isArray(tests) && tests.every((glob) => typeof glob === 'string'))) return [];
-  return [`${path} must be an array of globs for this project's test files`];
-}
-
-/** @type {Validator} */
-function validateExclude(exclude, path) {
-  const shape = exclude === undefined || Array.isArray(exclude) ? [] : [`${path} must be an array of { glob, reason }`];
-  return [...shape, ...asArray(exclude).flatMap((entry, i) => validateExcludeEntry(entry, `${path}[${i}]`))];
-}
-
-/** @type {Validator} */
-function validateExcludeEntry(entry, path) {
-  return isObject(entry) ? brokenRules(EXCLUDE_ENTRY_RULES, entry, path) : [`${path} must be { glob, reason }`];
-}
-
-/** @type {Validator} */
-function validateChapters(chapters, path) {
-  if (!Array.isArray(chapters) || chapters.length === 0) return [`${path} must be a non-empty array`];
-  return chapters.flatMap((chapter, i) => validateChapter(chapter, `${path}[${i}]`));
+function validateChapter(chapter, at) {
+  const { title, intro, hunks, html } = fieldsOf(chapter);
+  const errors = [];
+  if (!nonEmpty(title)) errors.push(`${at}.title is required`);
+  if (!nonEmpty(intro)) errors.push(`${at}.intro is required`);
+  else if (sentenceCount(intro) < 2) errors.push(`${at}.intro must have at least two sentences: what this chapter shows, and why it follows the previous one`);
+  if (hunks !== undefined && !Array.isArray(hunks)) errors.push(`${at}.hunks must be an array`);
+  if (Array.isArray(hunks) === (typeof html === 'string')) errors.push(`${at} must have exactly one of hunks or html`);
+  return [...errors, ...asArray(hunks).flatMap((ref, j) => validateHunkRef(ref, `${at}.hunks[${j}]`))];
 }
 
 /**
- * The hunks-or-html check is about the chapter as a whole, not one of its fields, so its
- * message reads differently from the CHAPTER_RULES ones and it sits outside that table.
- * @type {Validator}
+ * @param {unknown} ref
+ * @param {string} at where the ref sits in the story, such as chapters[0].hunks[1]
+ * @returns {string[]}
  */
-function validateChapter(chapter, path) {
-  const fields = fieldsOf(chapter);
-  const exactlyOne = Array.isArray(fields.hunks) !== (typeof fields.html === 'string');
-  return [
-    ...brokenRules(CHAPTER_RULES, fields, path),
-    ...(exactlyOne ? [] : [`${path} must have exactly one of hunks or html`]),
-    ...asArray(fields.hunks).flatMap((ref, j) => validateHunkRef(ref, `${path}.hunks[${j}]`)),
-  ];
-}
-
-/** @type {Validator} */
-function validateHunkRef(ref, path) {
-  return [
-    ...brokenRules(HUNK_REF_RULES, ref, path),
-    ...asArray(fieldsOf(ref).comments).flatMap((comment, k) => validateComment(comment, `${path}.comments[${k}]`)),
-  ];
-}
-
-/** @type {Validator} */
-function validateComment(comment, path) {
-  return brokenRules(COMMENT_RULES, comment, path);
+function validateHunkRef(ref, at) {
+  const { file, lines, covers, slice, comments } = fieldsOf(ref);
+  const errors = [];
+  if (!nonEmpty(file)) errors.push(`${at}.file is required`);
+  if (!validLines(lines)) errors.push(`${at}.lines must be "all" or [start, end] integers with start <= end`);
+  if (covers !== undefined && typeof covers !== 'string') errors.push(`${at}.covers must be text`);
+  if (slice === true && !Array.isArray(lines)) errors.push(`${at}.slice needs lines as [start, end]`);
+  if (comments !== undefined && !Array.isArray(comments)) errors.push(`${at}.comments must be an array`);
+  for (const [k, comment] of asArray(comments).entries()) {
+    const { line, side, text } = fieldsOf(comment);
+    if (!Number.isInteger(line)) errors.push(`${at}.comments[${k}].line must be an integer`);
+    if (side !== undefined && side !== 'old' && side !== 'new') errors.push(`${at}.comments[${k}].side must be "old" or "new"`);
+    if (!nonEmpty(text)) errors.push(`${at}.comments[${k}].text is required`);
+  }
+  return errors;
 }
 
 /**
@@ -374,66 +299,54 @@ function validateComment(comment, path) {
  * @returns {Report}
  */
 export function buildReport(story, files) {
+  /** @type {string[]} */
+  const errors = [];
+  /** @type {string[]} */
+  const warnings = [];
+  /** @type {Problems} */
+  const problems = { error: (message) => { errors.push(message); }, warning: (message) => { warnings.push(message); } };
+  // Every parsed hunk some chapter showed any part of, even a slice that came out empty.
+  /** @type {Set<Hunk>} */
+  const touched = new Set();
   const byPath = new Map(files.map((f) => [f.path, f]));
-  const built = story.chapters.map((chapter, i) => buildChapter(chapter, `chapters[${i}]`, byPath));
-  const picks = built.flatMap((b) => b.picks);
-  return {
-    chapters: built.map((b) => b.chapter),
-    appendix: appendixOf(files, new Set(picks.flatMap((p) => p.touched)), new Set(picks.flatMap((p) => p.shown))),
-    errors: picks.flatMap((p) => p.errors),
-    warnings: picks.flatMap((p) => p.warnings),
+
+  /**
+   * Joins one hunk ref with the diff. Null when the ref names no file or no hunk of the diff.
+   * @param {HunkRef} ref
+   * @param {string} at where the ref sits in the story, such as chapters[0].hunks[1]
+   * @returns {Selection | null}
+   */
+  const selectRef = (ref, at) => {
+    const file = byPath.get(ref.file);
+    if (!file) {
+      problems.error(`${at}: file not in diff: ${ref.file}`);
+      return null;
+    }
+    const picked = file.hunks.filter((h) => ref.lines === 'all' || overlaps(h, ref.lines[0], ref.lines[1]));
+    if (picked.length === 0) {
+      const range = ref.lines === 'all' ? 'any lines (file has no hunks)' : `new-side lines ${ref.lines[0]}-${ref.lines[1]}`;
+      problems.error(`${at}: no hunk in ${ref.file} overlaps ${range}`);
+      return null;
+    }
+    for (const h of picked) touched.add(h);
+    const hunks = shownParts(ref, picked);
+    const lines = hunks.flatMap((h) => h.lines);
+    /** @type {PlacedComment[]} */
+    const comments = (ref.comments ?? []).map((c) => ({ line: c.line, side: c.side ?? 'new', text: c.text }));
+    for (const [k, comment] of comments.entries()) checkComment(comment, `${at}.comments[${k}]`, { file: ref.file, lines }, problems);
+    return { file, hunks, comments, covers: typeof ref.covers === 'string' ? ref.covers : null, at };
   };
-}
 
-/**
- * @param {Chapter} chapter
- * @param {string} at where the chapter sits in the story, such as chapters[0]
- * @param {Map<string, DiffFile>} byPath
- * @returns {{ chapter: ReportChapter, picks: RefPick[] }}
- */
-function buildChapter(chapter, at, byPath) {
-  const { title, intro } = chapter;
-  if (typeof chapter.html === 'string') return { chapter: { kind: 'html', title, intro, html: chapter.html }, picks: [] };
-  const picks = chapter.hunks.map((ref, j) => selectRef(ref, `${at}.hunks[${j}]`, byPath));
-  const hunks = picks.map((p) => p.selection).filter((sel) => sel !== null);
-  return { chapter: { kind: 'diff', title, intro, hunks }, picks };
+  /** @type {ReportChapter[]} */
+  const chapters = story.chapters.map((chapter, i) => {
+    const { title, intro } = chapter;
+    if (typeof chapter.html === 'string') return { kind: 'html', title, intro, html: chapter.html };
+    const hunks = chapter.hunks.map((ref, j) => selectRef(ref, `chapters[${i}].hunks[${j}]`)).filter((sel) => sel !== null);
+    return { kind: 'diff', title, intro, hunks };
+  });
+  const shownLines = new Set(chapters.flatMap((ch) => (ch.kind === 'diff' ? ch.hunks : [])).flatMap((sel) => sel.hunks).flatMap((h) => h.lines));
+  return { chapters, appendix: appendixOf(files, touched, shownLines), errors, warnings, shownLines };
 }
-
-/**
- * Joins one hunk ref with the diff.
- * @param {HunkRef} ref
- * @param {string} at where the ref sits in the story, such as chapters[0].hunks[1]
- * @param {Map<string, DiffFile>} byPath
- * @returns {RefPick}
- */
-function selectRef(ref, at, byPath) {
-  const file = byPath.get(ref.file);
-  if (!file) return unresolved(`${at}: file not in diff: ${ref.file}`);
-  const picked = file.hunks.filter((h) => ref.lines === 'all' || overlaps(h, ref.lines[0], ref.lines[1]));
-  if (picked.length === 0) {
-    const range = ref.lines === 'all' ? 'any lines (file has no hunks)' : `new-side lines ${ref.lines[0]}-${ref.lines[1]}`;
-    return unresolved(`${at}: no hunk in ${ref.file} overlaps ${range}`);
-  }
-  const hunks = shownParts(ref, picked);
-  const lines = hunks.flatMap((h) => h.lines);
-  /** @type {PlacedComment[]} */
-  const comments = (ref.comments ?? []).map((c) => ({ line: c.line, side: c.side ?? 'new', text: c.text }));
-  const problems = comments.map((comment, k) => commentProblems({ comment, at: `${at}.comments[${k}]`, file: ref.file, lines }));
-  return {
-    selection: { file, hunks, comments, covers: typeof ref.covers === 'string' ? ref.covers : null, at },
-    errors: problems.flatMap((p) => p.errors),
-    warnings: problems.flatMap((p) => p.warnings),
-    touched: picked,
-    shown: lines,
-  };
-}
-
-/**
- * A ref that points at nothing in the diff: it shows nothing and reports one error.
- * @param {string} error
- * @returns {RefPick}
- */
-const unresolved = (error) => ({ selection: null, errors: [error], warnings: [], touched: [], shown: [] });
 
 /**
  * A slice shows only the given new-side range of each hunk, so one new file can be
@@ -452,23 +365,19 @@ function shownParts(ref, picked) {
 /**
  * A note on a line the chapter does not show cannot be placed, so that is an error. A note
  * whose named code sits on a nearby line can be placed but is likely off by one: a warning.
- * @param {object} args
- * @param {PlacedComment} args.comment
- * @param {string} args.at where the comment sits in the story, such as chapters[0].hunks[1].comments[2]
- * @param {string} args.file the path the hunk ref names
- * @param {DiffLine[]} args.lines the lines the hunk ref shows
- * @returns {{ errors: string[], warnings: string[] }}
+ * @param {PlacedComment} comment
+ * @param {string} at where the comment sits in the story, such as chapters[0].hunks[1].comments[2]
+ * @param {{ file: string, lines: DiffLine[] }} shown the path the hunk ref names and the lines it shows
+ * @param {Problems} problems
  */
-function commentProblems({ comment, at, file, lines }) {
+function checkComment(comment, at, { file, lines }, problems) {
   const { line, side } = comment;
-  const present = lines.some((l) => (side === 'new' ? l.new : l.old) === line);
-  if (!present) return { errors: [`${at}: ${side} line ${line} is not in the selected hunks of ${file}`], warnings: [] };
+  if (!lines.some((l) => l[side] === line)) {
+    problems.error(`${at}: ${side} line ${line} is not in the selected hunks of ${file}`);
+    return;
+  }
   const drift = anchorDrift(comment, lines);
-  if (!drift) return { errors: [], warnings: [] };
-  return {
-    errors: [],
-    warnings: [`${at}: ${file} ${side} line ${line} does not contain ${drift.names}; ${side} line ${drift.line} does. Move the note if it is about that line.`],
-  };
+  if (drift) problems.warning(`${at}: ${file} ${side} line ${line} does not contain ${drift.names}; ${side} line ${drift.line} does. Move the note if it is about that line.`);
 }
 
 /**
@@ -527,15 +436,10 @@ function anchorDrift(comment, lines) {
   const names = namesIn(comment.text);
   if (!names.length) return null;
   /**
-   * @param {DiffLine} l
-   * @returns {number | null}
-   */
-  const num = (l) => (comment.side === 'new' ? l.new : l.old);
-  /**
    * @param {number} n
    * @returns {DiffLine | undefined}
    */
-  const at = (n) => lines.find((l) => num(l) === n);
+  const at = (n) => lines.find((l) => l[comment.side] === n);
   const anchor = at(comment.line);
   if (!anchor || names.some((t) => anchor.content.includes(t))) return null;
   for (const d of [1, -1, 2, -2]) {

@@ -1,7 +1,7 @@
 // @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveDiff, describeTarget, repoRoot, parseTarget, prNumber, EMPTY_TREE } from '../lib/git.mjs';
+import { resolveDiff, describeTarget, repoRoot, parseTarget, prNumber, isIgnored, EMPTY_TREE } from '../lib/git.mjs';
 
 // Records every invocation and answers from a script keyed by "cmd args".
 /**
@@ -130,4 +130,12 @@ test('parseTarget reads a missing range side as HEAD, like git', () => {
 test('repoRoot trims the toplevel path', () => {
   const run = fakeRun({ 'git rev-parse --show-toplevel': '/tmp/repo\n' });
   assert.equal(repoRoot(run), '/tmp/repo');
+});
+
+test('isIgnored reads exit 0 as ignored, exit 1 as not ignored, and any other failure as unknown', () => {
+  const check = 'git -C /repo check-ignore -q --no-index /repo/reports/review/r.html';
+  const answer = (/** @type {string | Error} */ reply) => isIgnored('/repo', '/repo/reports/review/r.html', fakeRun({ [check]: reply }));
+  assert.equal(answer(''), true);
+  assert.equal(answer(exit(1)), false);
+  assert.equal(answer(exit(128)), null);
 });

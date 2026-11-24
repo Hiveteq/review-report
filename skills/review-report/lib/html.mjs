@@ -2,11 +2,11 @@
 // Assembles the report pages. Pure: takes the story, the built report, the parsed files, their
 // coverage and the asset strings, and returns HTML. DOM class/id names here are a contract with
 // template/report.js and template/report.css; change them together.
+// eslint-disable-next-line no-restricted-imports -- the file hash and report id are SHA-1, which only Node offers synchronously; the one Node-only import left in the renderer core
 import { createHash } from 'node:crypto';
 import { CDN, pin } from './cdn.mjs';
 import { escapeHtml as esc, renderMarkdown as md } from './markdown.mjs';
 import { HEADER_ONLY, headerOnlyKind, hunkLabel, lineStats, modeNote } from './diff.mjs';
-import { firstBy } from './collections.mjs';
 
 /** @typedef {import('./diff.mjs').DiffFile} DiffFile */
 /** @typedef {import('./diff.mjs').Hunk} Hunk */
@@ -44,33 +44,43 @@ import { firstBy } from './collections.mjs';
  */
 
 /**
- * Everything about the report that does not depend on the page being rendered, worked out once.
+ * The file each part of the report is on, as links name it. The single layout is one page, so there every
+ * name is empty and a link is just its #fragment.
+ * @typedef {{ index: string, chapters: string[], appendix: string }} PageNames
+ */
+
+/**
+ * What every page is built from, worked out once.
  * @typedef {object} PageContext
  * @property {Story} story
  * @property {Report} report
  * @property {DiffFile[]} files
+ * @property {Coverage} coverage
  * @property {Assets} assets
- * @property {boolean} paged
+ * @property {PageNames} pages
  * @property {string} reportId
- * @property {string} title the report title, escaped
- * @property {string} target what the report covers (a branch, a range), escaped; empty when unknown
- * @property {string} coverageLine
- * @property {string} excludedHtml the collapsed list of files the coverage count leaves out
  * @property {Map<DiffFile, string>} fileHashes
  * @property {Map<DiffFile, string>} anchorOf the id of the block the file index links to
  * @property {Map<DiffFile, BlockLocation>} firstLocationOf each file's first block in reading order: the
- *   one that carries its anchor id and, in the paged layout, the page the file index links to
- * @property {Map<string | undefined, DiffFile[]>} filesByPage the files whose first block is on each page
- * @property {string} fileIndexAll the sidebar list of every file
- * @property {string[]} chapterFiles per chapter, its paths for a data-files attribute
- * @property {Map<string, string>} excludedReason why the coverage count leaves a path out
- * @property {number} viewableTotal files the reader is asked to tick: the ones the count does not leave out
+ *   one that carries its anchor id, on the page the file index links to
+ * @property {FileIndex} fileIndex
+ * @property {string[]} chapterFiles per chapter, the paths it shows joined for a data-files attribute; every
+ *   page's table of contents repeats them
+ */
+
+/**
+ * The sidebar's file list, built once per render. Every page repeats the full list, so building it per page
+ * would cost pages × files.
+ * @typedef {object} FileIndex
+ * @property {string} progress the viewed counter and its rail
+ * @property {string} all one list item per file, linking to its first block
+ * @property {Map<string, DiffFile[]>} byPage the files whose first block is on each page
  */
 
 /** @typedef {import('./story.mjs').Selection | import('./story.mjs').AppendixEntry} BlockEntry */
 
 /**
- * A file block and the page it sits on in the paged layout.
+ * A file block and the name of the page it sits on.
  * @typedef {{ entry: BlockEntry, page: string }} BlockLocation
  */
 
@@ -112,15 +122,6 @@ const PRE_PAINT = `(function(){try{var d=document.documentElement,t=localStorage
  */
 
 /**
- * The whole report as one page.
- * @param {RenderInput} input
- * @returns {string}
- */
-export function renderHtml(input) {
-  return renderPages({ ...input, paged: false })[0].html;
-}
-
-/**
  * Single layout: one index.html with the whole report. Paged layout: an index (overview, key terms, how to
  * test, chapter list) plus one page per chapter and one for "Other changes". A large report then stays one
  * story with one reading order, while each page stays small enough to load and lay out quickly.
@@ -129,7 +130,7 @@ export function renderHtml(input) {
  */
 export function renderPages(input) {
   const ctx = buildContext(input);
-  return ctx.paged ? pagedLayout(ctx) : [singlePage(ctx)];
+  return input.paged ? pagedLayout(ctx) : [singlePage(ctx)];
 }
 
 /**
@@ -138,57 +139,78 @@ export function renderPages(input) {
  */
 function buildContext({ story, report, files, coverage, assets, paged }) {
   const hashes = files.map(fileHash);
+  const pages = pageNames(report, paged);
   const anchorOf = new Map(files.map((f, i) => [f, `file-${i + 1}-c`]));
-  const firstLocationOf = firstLocations(report);
-  /**
-   * @param {DiffFile} f
-   * @returns {string | undefined} the page holding the file's first block
-   */
-  const pageOf = (f) => firstLocationOf.get(f)?.page;
-  const excludedReason = new Map(coverage.excluded.map((e) => [e.path, e.reason]));
+  const firstLocationOf = firstLocations(report, pages);
   return {
     story,
     report,
     files,
+    coverage,
     assets,
-    paged,
+    pages,
     reportId: reportIdFor(story.meta.title, hashes),
-    title: esc(story.meta.title),
-    target: story.meta.target ? esc(story.meta.target) : '',
-    coverageLine: coverageLine(story, coverage),
-    excludedHtml: excludedListHtml(coverage),
     fileHashes: new Map(files.map((f, i) => [f, hashes[i]])),
     anchorOf,
     firstLocationOf,
-    filesByPage: Map.groupBy(files, pageOf),
-    // In the single layout every block is on the one page, so a link is just the fragment.
-    fileIndexAll: files.map((f) => fileIndexItem(f, `${paged ? pageOf(f) ?? '' : ''}#${anchorOf.get(f)}`)).join(''),
+    fileIndex: fileIndexOf({ files, coverage, anchorOf, firstLocationOf }),
     chapterFiles: report.chapters.map(chapterFileList),
-    excludedReason,
-    viewableTotal: files.filter((f) => !excludedReason.has(f.path)).length,
   };
+}
+
+/**
+ * @param {Pick<PageContext, 'files' | 'coverage' | 'anchorOf' | 'firstLocationOf'>} parts
+ * @returns {FileIndex}
+ */
+function fileIndexOf({ files, coverage, anchorOf, firstLocationOf }) {
+  const excluded = new Set(coverage.excluded.map((e) => e.path));
+  // The reader is asked to tick only the files the coverage count does not leave out.
+  const total = files.filter((f) => !excluded.has(f.path)).length;
+  return {
+    progress: `<div class="viewed-progress"><span class="viewed-count" data-total="${total}">0 of ${total} viewed</span><div class="rail"><div class="fill"></div></div></div>`,
+    all: files.map((f) => fileIndexItem(f, `${firstLocationOf.get(f)?.page ?? ''}#${anchorOf.get(f)}`)).join(''),
+    byPage: Map.groupBy(files, (f) => firstLocationOf.get(f)?.page ?? ''),
+  };
+}
+
+/**
+ * @param {Report} report
+ * @param {boolean} paged
+ * @returns {PageNames}
+ */
+function pageNames(report, paged) {
+  if (!paged) return { index: '', chapters: report.chapters.map(() => ''), appendix: '' };
+  return {
+    index: INDEX_PAGE,
+    chapters: report.chapters.map((_, i) => `chapter-${String(i + 1).padStart(2, '0')}.html`),
+    appendix: APPENDIX_PAGE,
+  };
+}
+
+/**
+ * A link to a whole chapter or to Other changes: its own page when it has one, else its heading on the one page.
+ * @param {string} page
+ * @param {string} id
+ * @returns {string}
+ */
+function sectionHref(page, id) {
+  return page || `#${id}`;
 }
 
 /**
  * Every file block in reading order (the chapters, then Other changes), reduced to each file's first.
  * @param {Report} report
+ * @param {PageNames} pages
  * @returns {Map<DiffFile, BlockLocation>}
  */
-function firstLocations(report) {
+function firstLocations(report, pages) {
   /** @type {BlockLocation[]} */
   const locations = [
-    ...report.chapters.flatMap((ch, i) => (ch.kind === 'diff' ? ch.hunks.map((entry) => ({ entry, page: chapterPage(i) })) : [])),
-    ...report.appendix.map((entry) => ({ entry, page: APPENDIX_PAGE })),
+    ...report.chapters.flatMap((ch, i) => (ch.kind === 'diff' ? ch.hunks.map((entry) => ({ entry, page: pages.chapters[i] })) : [])),
+    ...report.appendix.map((entry) => ({ entry, page: pages.appendix })),
   ];
-  return firstBy(locations, (loc) => loc.entry.file);
-}
-
-/**
- * @param {number} i
- * @returns {string}
- */
-function chapterPage(i) {
-  return `chapter-${String(i + 1).padStart(2, '0')}.html`;
+  const byFile = Map.groupBy(locations, (loc) => loc.entry.file);
+  return new Map(Array.from(byFile, ([file, [first]]) => [file, first]));
 }
 
 /**
@@ -197,7 +219,7 @@ function chapterPage(i) {
  */
 function singlePage(ctx) {
   const body = [...frontSections(ctx.story), ...pageSequence(ctx).map((s) => s.body)].join('\n');
-  return pageShell(ctx, { path: INDEX_PAGE, pageTitle: ctx.title, body });
+  return pageShell(ctx, { path: INDEX_PAGE, pageTitle: esc(ctx.story.meta.title), body });
 }
 
 /**
@@ -205,16 +227,17 @@ function singlePage(ctx) {
  * @returns {Page[]} the index, then each page in reading order
  */
 function pagedLayout(ctx) {
+  const title = esc(ctx.story.meta.title);
   const sequence = pageSequence(ctx);
   const index = pageShell(ctx, {
     path: INDEX_PAGE,
-    pageTitle: ctx.title,
+    pageTitle: title,
     body: [...frontSections(ctx.story), chapterListHtml(ctx)].join('\n'),
     next: sequence[0] ?? null,
   });
   const pages = sequence.map((s, k) => pageShell(ctx, {
     path: s.href,
-    pageTitle: `${esc(s.title)} · ${ctx.title}`,
+    pageTitle: `${esc(s.title)} · ${title}`,
     body: s.body,
     prev: k === 0 ? { href: INDEX_PAGE, title: 'Overview' } : sequence[k - 1],
     next: sequence[k + 1] ?? null,
@@ -228,9 +251,10 @@ function pagedLayout(ctx) {
  *   was left out, each with the page it gets in the paged layout
  */
 function pageSequence(ctx) {
-  const chapters = ctx.report.chapters.map((ch, i) => ({ href: chapterPage(i), title: ch.title, body: chapterHtml(ctx, ch, i) }));
-  if (!ctx.report.appendix.length) return chapters;
-  return [...chapters, { href: APPENDIX_PAGE, title: 'Other changes', body: appendixHtml(ctx) }];
+  const { report, pages } = ctx;
+  const chapters = report.chapters.map((ch, i) => ({ href: pages.chapters[i], title: ch.title, body: chapterHtml(ctx, ch, i) }));
+  if (!report.appendix.length) return chapters;
+  return [...chapters, { href: pages.appendix, title: 'Other changes', body: appendixHtml(ctx) }];
 }
 
 /**
@@ -250,17 +274,9 @@ function frontSections(story) {
  * @returns {string}
  */
 function glossaryHtml(glossary) {
-  const terms = glossary.map((g) => `<dt>${esc(g.term)}</dt><dd>${inlineMd(g.meaning)}</dd>`).join('');
+  // Meanings are one paragraph; unwrap the <p> the converter adds.
+  const terms = glossary.map((g) => `<dt>${esc(g.term)}</dt><dd>${md(g.meaning).replace(/^<p>([\s\S]*)<\/p>$/, '$1')}</dd>`).join('');
   return `<section><h2 id="key-terms">New terms</h2><dl class="glossary">${terms}</dl></section>`;
-}
-
-/**
- * Glossary meanings are one paragraph; unwrap the <p> the converter adds.
- * @param {string} text
- * @returns {string}
- */
-function inlineMd(text) {
-  return md(text).replace(/^<p>([\s\S]*)<\/p>$/, '$1');
 }
 
 const OVERVIEW_HEADINGS = { bigPicture: 'Where this change sits', why: 'Why this change', approach: 'What changes', howToRead: 'How to read this report' };
@@ -274,14 +290,13 @@ function overview(ov) {
 }
 
 /**
- * Chapter list on the index: title, files shown, notes, so the reader sees the shape before diving in.
+ * Chapter list on the paged index: title, files shown, notes, so the reader sees the shape before diving in.
  * @param {PageContext} ctx
  * @returns {string}
  */
-function chapterListHtml(ctx) {
-  const { report } = ctx;
-  const chapters = report.chapters.map((ch, i) => `<li data-files="${ctx.chapterFiles[i]}"><a href="${chapterPage(i)}">${esc(ch.title)}</a>${chapterCounts(ch)}<div class="intro">${md(ch.intro)}</div></li>`);
-  const other = report.appendix.length ? `<li><a href="${APPENDIX_PAGE}">Other changes</a> <span class="muted">${plural(report.appendix.length, 'file')}</span></li>` : '';
+function chapterListHtml({ report, pages, chapterFiles }) {
+  const chapters = report.chapters.map((ch, i) => `<li data-files="${chapterFiles[i]}"><a href="${pages.chapters[i]}">${esc(ch.title)}</a>${chapterCounts(ch)}<div class="intro">${md(ch.intro)}</div></li>`);
+  const other = report.appendix.length ? `<li><a href="${pages.appendix}">Other changes</a> <span class="muted">${plural(report.appendix.length, 'file')}</span></li>` : '';
   return `<section><h2 id="chapters">Chapters</h2><ol class="chapter-list">${chapters.join('')}${other}</ol></section>`;
 }
 
@@ -350,8 +365,6 @@ ${PRE_PAINT}
  * @returns {string}
  */
 function sidebarHtml(ctx, path) {
-  // The table of contents marks the page being read; the index is not in it.
-  const current = path === INDEX_PAGE ? null : path;
   return `<nav class="sidebar">
   <div class="sidebar-top">
     <button id="theme-toggle" type="button" title="Toggle light/dark">Theme</button>
@@ -359,7 +372,7 @@ function sidebarHtml(ctx, path) {
     <button id="diff-toggle" type="button" title="Unified diff, or old and new side by side; applies to every file">Diff: unified</button>
   </div>
   <ol class="toc">
-    ${tocHtml(ctx, current)}
+    ${tocHtml(ctx, path)}
   </ol>
   ${sidebarFilesHtml(ctx, path)}
 </nav>`;
@@ -367,18 +380,19 @@ function sidebarHtml(ctx, path) {
 
 /**
  * The title, the target and the coverage numbers on every page; the excluded-file list on the index only.
+ * The single layout's one page is the index too.
  * @param {PageContext} ctx
  * @param {string} path
  * @returns {string}
  */
-function reportHeaderHtml(ctx, path) {
+function reportHeaderHtml({ story, coverage }, path) {
   const onIndex = path === INDEX_PAGE;
-  const title = ctx.paged && !onIndex ? `<a href="${INDEX_PAGE}">${ctx.title}</a>` : ctx.title;
+  const title = esc(story.meta.title);
   return `<header class="report-header">
-  <h1>${title}</h1>
-  ${ctx.target ? `<p class="target">${ctx.target}</p>` : ''}
-  <p class="coverage">${ctx.coverageLine}</p>
-  ${onIndex ? ctx.excludedHtml : ''}
+  <h1>${onIndex ? title : `<a href="${INDEX_PAGE}">${title}</a>`}</h1>
+  ${story.meta.target ? `<p class="target">${esc(story.meta.target)}</p>` : ''}
+  <p class="coverage">${coverageLine(story, coverage)}</p>
+  ${onIndex ? excludedListHtml(coverage) : ''}
 </header>`;
 }
 
@@ -396,68 +410,51 @@ function pagerHtml(prev, next) {
 }
 
 /**
- * The sidebar's table of contents. `current` is the page being rendered, marked for the reader; null on the
- * index and in the single layout.
+ * The sidebar's table of contents, with the page being read marked as current.
  * @param {PageContext} ctx
- * @param {string | null} current
+ * @param {string} path the page being rendered
  * @returns {string}
  */
-function tocHtml(ctx, current) {
-  const { story, report, paged } = ctx;
-  const indexHref = paged ? INDEX_PAGE : '';
-  const appendixHref = paged ? APPENDIX_PAGE : '#appendix';
+function tocHtml({ story, report, pages, chapterFiles }, path) {
+  /**
+   * @param {string} page
+   * @returns {string}
+   */
+  const current = (page) => (page === path ? ' class="current"' : '');
+  const chapters = report.chapters.map((ch, i) => {
+    const files = chapterFiles[i];
+    // data-files lets the page script mark a chapter whose files are all viewed.
+    const attrs = `${current(pages.chapters[i])}${files ? ` data-files="${files}"` : ''}`;
+    return `<li${attrs}><a href="${sectionHref(pages.chapters[i], `chapter-${i + 1}`)}">${esc(ch.title)}</a>${files ? '<span class="chapter-progress"></span>' : ''}</li>`;
+  });
   return [
-    `<li><a href="${indexHref}#overview">Overview</a></li>`,
-    story.glossary?.length ? `<li><a href="${indexHref}#key-terms">New terms</a></li>` : '',
-    story.howToTest ? `<li><a href="${indexHref}#how-to-test">How to test</a></li>` : '',
-    ...report.chapters.map((ch, i) => tocChapterEntry(ctx, i, current)),
-    report.appendix.length ? `<li${currentClass(appendixHref, current)}><a href="${appendixHref}">Other changes</a></li>` : '',
+    `<li><a href="${pages.index}#overview">Overview</a></li>`,
+    story.glossary?.length ? `<li><a href="${pages.index}#key-terms">New terms</a></li>` : '',
+    story.howToTest ? `<li><a href="${pages.index}#how-to-test">How to test</a></li>` : '',
+    ...chapters,
+    report.appendix.length ? `<li${current(pages.appendix)}><a href="${sectionHref(pages.appendix, 'appendix')}">Other changes</a></li>` : '',
   ].filter(Boolean).join('\n    ');
 }
 
 /**
- * @param {PageContext} ctx
- * @param {number} i
- * @param {string | null} current
- * @returns {string}
- */
-function tocChapterEntry(ctx, i, current) {
-  const href = ctx.paged ? chapterPage(i) : `#chapter-${i + 1}`;
-  const files = ctx.chapterFiles[i];
-  // data-files lets the page script mark a chapter whose files are all viewed.
-  const attrs = `${currentClass(href, current)}${files ? ` data-files="${files}"` : ''}`;
-  return `<li${attrs}><a href="${href}">${esc(ctx.report.chapters[i].title)}</a>${files ? '<span class="chapter-progress"></span>' : ''}</li>`;
-}
-
-/**
- * @param {string} href
- * @param {string | null} current
- * @returns {string}
- */
-function currentClass(href, current) {
-  return href === current ? ' class="current"' : '';
-}
-
-/**
- * Single layout and paged index: every file. Paged chapter pages lead with the files on that page, and keep
- * the full list one click away.
+ * The index (and so the single layout) lists every file. Paged chapter pages lead with the files on that
+ * page, and keep the full list one click away.
  * @param {PageContext} ctx
  * @param {string} path
  * @returns {string}
  */
-function sidebarFilesHtml(ctx, path) {
-  const total = ctx.viewableTotal;
-  const progress = `<div class="viewed-progress"><span class="viewed-count" data-total="${total}">0 of ${total} viewed</span><div class="rail"><div class="fill"></div></div></div>`;
-  if (!ctx.paged || path === INDEX_PAGE) {
+function sidebarFilesHtml({ files, anchorOf, fileIndex }, path) {
+  const { progress, all } = fileIndex;
+  if (path === INDEX_PAGE) {
     return `<h3>Files</h3>
   ${progress}
-  <nav class="file-index"><ul>${ctx.fileIndexAll}</ul></nav>`;
+  <nav class="file-index"><ul>${all}</ul></nav>`;
   }
-  const here = (ctx.filesByPage.get(path) ?? []).map((f) => fileIndexItem(f, `#${ctx.anchorOf.get(f)}`)).join('');
+  const here = (fileIndex.byPage.get(path) ?? []).map((f) => fileIndexItem(f, `#${anchorOf.get(f)}`)).join('');
   return `<h3>Files on this page</h3>
   <nav class="file-index"><ul>${here}</ul></nav>
   ${progress}
-  <details class="all-files"><summary>All files (${ctx.files.length})</summary><nav class="file-index"><ul>${ctx.fileIndexAll}</ul></nav></details>`;
+  <details class="all-files"><summary>All files (${files.length})</summary><nav class="file-index"><ul>${all}</ul></nav></details>`;
 }
 
 /**
@@ -467,22 +464,14 @@ function sidebarFilesHtml(ctx, path) {
  * @returns {string}
  */
 function chapterHtml(ctx, ch, i) {
-  const id = `chapter-${i + 1}`;
   const body = ch.kind === 'html'
     ? `<div class="custom">${ch.html}</div>`
-    : ch.hunks.map((sel) => fileBlock({
-      file: sel.file,
-      hunks: sel.hunks,
-      comments: sel.comments,
-      anchorId: anchorIdOf(ctx, sel),
-      hash: ctx.fileHashes.get(sel.file),
-      covers: sel.covers,
-    })).join('');
+    : ch.hunks.map((sel) => fileBlock(ctx, sel, { comments: sel.comments, covers: sel.covers })).join('');
   const files = ctx.chapterFiles[i];
   const attrs = files ? ` data-files="${files}"` : '';
   // The page script writes how many of the chapter's files are viewed into p.chapter-viewed.
   const viewed = files ? '<p class="chapter-viewed"></p>' : '';
-  return `<section class="chapter"${attrs}><h2 id="${id}">${esc(ch.title)}</h2>${viewed}<div class="intro">${md(ch.intro)}</div>${body}</section>`;
+  return `<section class="chapter"${attrs}><h2 id="chapter-${i + 1}">${esc(ch.title)}</h2>${viewed}<div class="intro">${md(ch.intro)}</div>${body}</section>`;
 }
 
 /**
@@ -491,25 +480,9 @@ function chapterHtml(ctx, ch, i) {
  * @returns {string}
  */
 function appendixHtml(ctx) {
-  const blocks = ctx.report.appendix.map((e) => fileBlock({
-    file: e.file,
-    hunks: e.hunks,
-    comments: [],
-    anchorId: anchorIdOf(ctx, e),
-    excludedReason: ctx.excludedReason.get(e.file.path),
-    hash: ctx.fileHashes.get(e.file),
-  }));
+  const excludedReason = new Map(ctx.coverage.excluded.map((e) => [e.path, e.reason]));
+  const blocks = ctx.report.appendix.map((e) => fileBlock(ctx, e, { excludedReason: excludedReason.get(e.file.path) }));
   return `<section><h2 id="appendix">Other changes</h2><p class="muted">Hunks no chapter referenced. Listed so nothing is hidden.</p>${blocks.join('')}</section>`;
-}
-
-/**
- * A file shown in several places gets its anchor id on its first block only, the one the file index links to.
- * @param {PageContext} ctx
- * @param {BlockEntry} entry
- * @returns {string | undefined}
- */
-function anchorIdOf(ctx, entry) {
-  return ctx.firstLocationOf.get(entry.file)?.entry === entry ? ctx.anchorOf.get(entry.file) : undefined;
 }
 
 /**
@@ -524,32 +497,33 @@ function fileIndexItem(f, href) {
 }
 
 /**
- * One file's hunks as a block of the page.
- * @typedef {object} FileBlockInput
- * @property {DiffFile} file
- * @property {Hunk[]} hunks
- * @property {PlacedComment[]} comments
- * @property {string} [anchorId] set on the file's first block only
- * @property {string} [excludedReason] set when the coverage count leaves the file out
- * @property {string} [hash]
- * @property {string | null} [covers]
+ * What a chapter block has and an Other changes block has not, and the other way round.
+ * @typedef {object} BlockExtras
+ * @property {PlacedComment[]} [comments]
+ * @property {string | null} [covers] what a test file pins and leaves untested
+ * @property {string} [excludedReason] set when the coverage count leaves the file out; the block comes collapsed
  */
 
 /**
- * @param {FileBlockInput} input
+ * One file's hunks as a block of the page. A file shown in several places gets its anchor id on its first
+ * block only, the one the file index links to.
+ * @param {PageContext} ctx
+ * @param {BlockEntry} entry
+ * @param {BlockExtras} extras
  * @returns {string}
  */
-function fileBlock({ file, hunks, comments, anchorId, excludedReason, hash, covers }) {
+function fileBlock(ctx, entry, { comments = [], covers, excludedReason }) {
+  const { file } = entry;
   const head = `<span class="path">${fileName(file)}</span>${statusBadges(file)}`;
-  const idAttr = anchorId ? ` id="${anchorId}"` : '';
-  const body = `<div class="file-body"><div class="diff-col">${fileTables(file, hunks, comments)}</div><aside class="notes-col"></aside></div>`;
+  const idAttr = ctx.firstLocationOf.get(file)?.entry === entry ? ` id="${ctx.anchorOf.get(file)}"` : '';
+  const body = `<div class="file-body"><div class="diff-col">${fileTables(file, entry.hunks, comments)}</div><aside class="notes-col"></aside></div>`;
   // Files excluded from coverage are listed, not expanded: nobody reads a generated diff.
   if (excludedReason) {
     return `<details class="file excluded"${idAttr} data-path="${esc(file.path)}"><summary class="file-header">${head}<span class="muted">excluded: ${esc(excludedReason)}</span></summary>
 ${body}
 </details>`;
   }
-  return `<section class="file"${idAttr} data-path="${esc(file.path)}" data-hash="${hash}">
+  return `<section class="file"${idAttr} data-path="${esc(file.path)}" data-hash="${ctx.fileHashes.get(file)}">
 <header class="file-header">${head}<label class="viewed"><input type="checkbox" class="viewed-toggle"> Viewed</label></header>${covers ? `<div class="covers"><span class="covers-label">Covers</span>${md(covers)}</div>` : ''}
 ${body}
 </section>`;
@@ -584,42 +558,31 @@ function fileTables(file, hunks, comments) {
   const kind = headerOnlyKind(file);
   if (kind !== null) return `<p class="muted">${esc(HEADER_ONLY[kind].sentence(file))}</p>`;
   const lang = languageFor(file.path);
-  const notesAt = commentsByLine(comments);
-  return hunks.map((h) => hunkTable(h, notesAt, lang)).join('');
-}
-
-/** @typedef {Map<string, { comment: PlacedComment, order: number }[]>} CommentIndex */
-
-/**
- * Each comment under `side:line`, with its place in the story so notes keep the story's order.
- * @param {PlacedComment[]} comments
- * @returns {CommentIndex}
- */
-function commentsByLine(comments) {
-  return Map.groupBy(comments.map((comment, order) => ({ comment, order })), ({ comment }) => `${comment.side}:${comment.line}`);
-}
-
-/**
- * @param {DiffLine} line
- * @param {CommentIndex} notesAt
- * @returns {PlacedComment[]} the comments anchored on this line, in story order
- */
-function commentsOn(line, notesAt) {
-  const hits = [...notesAt.get(`new:${line.new}`) ?? [], ...notesAt.get(`old:${line.old}`) ?? []];
-  // A context line has both numbers, so notes on both sides can land on it; they interleave in story order.
-  return hits.sort((a, b) => a.order - b.order).map(({ comment }) => comment);
+  return hunks.map((h) => hunkTable(h, comments, lang)).join('');
 }
 
 /**
  * @param {Hunk} hunk
- * @param {CommentIndex} notesAt
+ * @param {PlacedComment[]} comments the notes of the block, in story order
  * @param {string} lang
  * @returns {string}
  */
-function hunkTable(hunk, notesAt, lang) {
+function hunkTable(hunk, comments, lang) {
   const header = `<tr class="hunk-header"><td colspan="3">${esc(hunkLabel(hunk))}</td></tr>`;
-  const rows = hunk.lines.flatMap((line) => [lineRow(line, lang), ...commentsOn(line, notesAt).map(commentRow)]);
-  return `<table class="diff unified"><colgroup><col class="num"><col class="num"><col class="code"></colgroup>${header}${rows.join('')}</table>`;
+  const rows = hunk.lines.map((line) => `${lineRow(line, lang)}${noteRows(line, comments)}`).join('');
+  return `<table class="diff unified"><colgroup><col class="num"><col class="num"><col class="code"></colgroup>${header}${rows}</table>`;
+}
+
+/**
+ * The notes anchored on a line, in story order. A context line has both numbers, so notes on either side
+ * can land on it.
+ * @param {DiffLine} line
+ * @param {PlacedComment[]} comments
+ * @returns {string}
+ */
+function noteRows(line, comments) {
+  if (!comments.length) return '';
+  return comments.filter((c) => c.line === line[c.side]).map(commentRow).join('');
 }
 
 /**
@@ -696,11 +659,21 @@ function plural(n, word) {
  * Viewed ticks are stored per report and per file. The report id ties them to this title and this exact
  * diff, so two reports open side by side, or two renders of a branch at different commits, never share
  * ticks. Both formulas are persisted in readers' storage: changing either drops every stored tick.
+ * The file hash covers the path, then every line as type and content, lines and hunks joined by '\n'.
  * @param {DiffFile} file
  * @returns {string}
  */
 function fileHash(file) {
-  return hashOf(`${file.path}\n${file.hunks.map((h) => h.lines.map((l) => `${l.type}${l.content}`).join('\n')).join('\n')}`);
+  // Fed piece by piece, so a large file is never copied into one string first.
+  const hash = createHash('sha1').update(`${file.path}\n`);
+  for (const [i, hunk] of file.hunks.entries()) {
+    if (i > 0) hash.update('\n');
+    for (const [j, line] of hunk.lines.entries()) {
+      if (j > 0) hash.update('\n');
+      hash.update(line.type).update(line.content);
+    }
+  }
+  return shortDigest(hash);
 }
 
 /**
@@ -709,25 +682,18 @@ function fileHash(file) {
  * @returns {string}
  */
 function reportIdFor(title, fileHashes) {
-  return `${slugOf(title)}-${hashOf(`${title}\n${fileHashes.join(',')}`)}`;
+  const slug = title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 60) || 'report';
+  return `${slug}-${shortDigest(createHash('sha1').update(`${title}\n${fileHashes.join(',')}`))}`;
 }
 
 /**
  * report.js finds the ticks of earlier renders of the same report by the id with its last
  * `-` plus eight lowercase hex digits cut off. Keep this length and alphabet.
- * @param {string} text
+ * @param {import('node:crypto').Hash} hash
  * @returns {string}
  */
-function hashOf(text) {
-  return createHash('sha1').update(text).digest('hex').slice(0, 8);
-}
-
-/**
- * @param {string} title
- * @returns {string}
- */
-function slugOf(title) {
-  return title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 60) || 'report';
+function shortDigest(hash) {
+  return hash.digest('hex').slice(0, 8);
 }
 
 /**

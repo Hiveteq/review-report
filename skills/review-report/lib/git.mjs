@@ -42,7 +42,7 @@ const DIFF_FORMAT = [
 ];
 
 /** @type {Run} */
-export function defaultRun(cmd, args) {
+function defaultRun(cmd, args) {
   return execFileSync(cmd, args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
@@ -125,6 +125,22 @@ export function prNumber(target) {
   return m ? m[1] : null;
 }
 
+/**
+ * Asks git itself, so any pattern (.gitignore, info/exclude, global excludes) counts.
+ * --no-index answers for a tracked path too.
+ * @param {string} root the repository to ask in
+ * @param {string} path
+ * @param {Run} [run]
+ * @returns {boolean | null} null when git could not tell (path behind a symlink, git missing)
+ */
+export function isIgnored(root, path, run = defaultRun) {
+  try {
+    return gitAnswers(['-C', root, 'check-ignore', '-q', '--no-index', path], run);
+  } catch {
+    return null; // not an answer; the caller decides what an unknown means
+  }
+}
+
 // `<ref>^`, or the empty tree when <ref> is a root commit and has no parent.
 /**
  * @param {string} ref
@@ -135,17 +151,26 @@ function parentOf(ref, run) {
   return refExists(`${ref}^`, run) ? `${ref}^` : EMPTY_TREE;
 }
 
-// `rev-parse --verify --quiet` exits 1 for an unknown ref. Any other failure
-// (not a repository, git missing, dubious ownership) is not an answer, so it
-// propagates with git's own message instead of being read as "no such ref".
 /**
  * @param {string} ref
  * @param {Run} run
  * @returns {boolean}
  */
 function refExists(ref, run) {
+  return gitAnswers(['rev-parse', '--verify', '--quiet', ref], run);
+}
+
+// For a yes-or-no git command: exit 0 is yes, exit 1 is no. Any other failure
+// (not a repository, git missing, dubious ownership) is not an answer, so it
+// propagates with git's own message instead of being read as "no".
+/**
+ * @param {string[]} args
+ * @param {Run} run
+ * @returns {boolean}
+ */
+function gitAnswers(args, run) {
   try {
-    run('git', ['rev-parse', '--verify', '--quiet', ref]);
+    run('git', args);
     return true;
   } catch (e) {
     if (/** @type {ExecError} */ (e).status === 1) return false;

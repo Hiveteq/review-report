@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { parseDiff } from '../lib/diff.mjs';
 import { buildReport } from '../lib/story.mjs';
 import { computeCoverage } from '../lib/coverage.mjs';
-import { renderHtml, renderPages } from '../lib/html.mjs';
+import { renderPages } from '../lib/html.mjs';
 import { CDN } from '../lib/cdn.mjs';
 import { FIXTURE_DIFF_PATH, FIXTURE_STORY_PATH, fixtureDiffText, fixtureStory, minimalStory, spawnRender, tempDir } from './helpers.mjs';
 
@@ -27,6 +27,15 @@ const assets = { css: 'body{--marker:css}', js: 'window.__marker="js";' };
 function inputFor(s, f) {
   const report = buildReport(s, f);
   return { story: s, report, files: f, coverage: computeCoverage(s, f, report), assets };
+}
+
+/**
+ * The whole report as one page: the single layout.
+ * @param {import('../lib/html.mjs').RenderInput} input
+ * @returns {string}
+ */
+function renderHtml(input) {
+  return renderPages({ ...input, paged: false })[0].html;
 }
 
 const html = renderHtml(inputFor(story, files));

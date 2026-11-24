@@ -14,44 +14,24 @@ export function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ESC[c]);
 }
 
-/**
- * What a block parser returns: its HTML ('' for a block that renders nothing) and the line after the block.
- * @typedef {{ html: string, next: number }} Block
- */
-
-/**
- * A block kind: `start` recognises its first line, and `parse` consumes the block from there. `parse` gets the
- * `start` match, so a parser does not re-run the pattern that picked it.
- * @typedef {object} BlockParser
- * @property {RegExp} start
- * @property {(lines: string[], i: number, match: RegExpExecArray) => Block} parse
- */
-
 const FENCE = /^```/;
 const BULLET = /^[-*] /;
 const ORDERED = /^(\d+)\. /;
+const BLANK = /^\s*$/;
 // The `s` flag lets the heading text run to the end of the line even past a stray \r, U+2028 or U+2029.
-// Lines are already split on \n, so it never reaches into the next line.
+// Lines are already split on \n, so it never reaches into the next line. Without it such a line matched no
+// block yet still ended a paragraph, and the loop below never moved past it.
 const HEADING = /^(#{1,4}) (.*)$/s;
 
 /**
- * Tried in order on the first line of each block. A line no parser claims starts a paragraph.
- * @type {readonly BlockParser[]}
- */
-const BLOCKS = Object.freeze([
-  { start: FENCE, parse: fence },
-  { start: HEADING, parse: heading },
-  { start: BULLET, parse: bulletList },
-  { start: ORDERED, parse: orderedList },
-  { start: /^\s*$/, parse: (lines, i) => ({ html: '', next: i + 1 }) },
-]);
-
-/**
  * Whether a line begins a block other than a paragraph, which is where a paragraph ends.
+ * It uses the same patterns as the block checks in renderMarkdown, so the two always agree.
  * @param {string} line
  * @returns {boolean}
  */
-const startsBlock = (line) => BLOCKS.some(({ start }) => start.test(line));
+function startsBlock(line) {
+  return FENCE.test(line) || HEADING.test(line) || BULLET.test(line) || ORDERED.test(line) || BLANK.test(line);
+}
 
 /**
  * @param {string} src
@@ -64,33 +44,38 @@ export function renderMarkdown(src) {
   // A cursor over the lines: each block consumes a run of them and says where the next block begins.
   let i = 0;
   while (i < lines.length) {
-    const { html, next } = parseBlock(lines, i);
-    if (html) out.push(html);
-    i = next;
+    const line = lines[i];
+    const heading = HEADING.exec(line);
+    if (FENCE.test(line)) {
+      const block = fence(lines, i);
+      out.push(block.html);
+      i = block.next;
+    } else if (heading) {
+      const level = heading[1].length + 2; // # → h3, so it nests under the report's h2 sections
+      out.push(`<h${level}>${inline(heading[2])}</h${level}>`);
+      i++;
+    } else if (BULLET.test(line) || ORDERED.test(line)) {
+      const block = list(lines, i);
+      out.push(block.html);
+      i = block.next;
+    } else if (BLANK.test(line)) {
+      i++;
+    } else {
+      // A paragraph: this line and the ones after it, up to the next blank line or block start.
+      let next = i + 1;
+      while (next < lines.length && !startsBlock(lines[next])) next++;
+      out.push(`<p>${inline(lines.slice(i, next).join(' '))}</p>`);
+      i = next;
+    }
   }
   return out.join('\n');
 }
 
 /**
- * Parses the block that begins at line i.
- * @param {string[]} lines
- * @param {number} i
- * @returns {Block}
- */
-function parseBlock(lines, i) {
-  // A loop, not find: the match that picked the parser is handed to it.
-  for (const { start, parse } of BLOCKS) {
-    const match = start.exec(lines[i]);
-    if (match) return parse(lines, i, match);
-  }
-  return paragraph(lines, i);
-}
-
-/**
  * A fenced code block. An unclosed fence runs to the end of the text.
  * @param {string[]} lines
- * @param {number} i
- * @returns {Block}
+ * @param {number} i the opening fence
+ * @returns {{ html: string, next: number }} next is the line after the closing fence
  */
 function fence(lines, i) {
   const lang = lines[i].slice(3).trim() || 'plaintext';
@@ -106,78 +91,29 @@ function fence(lines, i) {
 }
 
 /**
+ * A bulleted or numbered list: the run of lines that carry the same kind of marker as line i.
  * @param {string[]} lines
- * @param {number} i
- * @param {RegExpExecArray} match groups: the hashes, then the heading text
- * @returns {Block}
+ * @param {number} i the first item
+ * @returns {{ html: string, next: number }} next is the line after the last item
  */
-function heading(lines, i, match) {
-  const level = match[1].length + 2; // # → h3, so it nests under the report's h2 sections
-  return { html: `<h${level}>${inline(match[2])}</h${level}>`, next: i + 1 };
-}
-
-/**
- * @param {string[]} lines
- * @param {number} i
- * @param {RegExpExecArray} first the match on the first item
- * @returns {Block}
- */
-function bulletList(lines, i, first) {
-  const items = [first, ...matchRun(lines, i + 1, BULLET)];
-  return { html: `<ul>${listItems(items)}</ul>`, next: i + items.length };
-}
-
-/**
- * @param {string[]} lines
- * @param {number} i
- * @param {RegExpExecArray} first the match on the first item; group 1 is its number
- * @returns {Block}
- */
-function orderedList(lines, i, first) {
-  const items = [first, ...matchRun(lines, i + 1, ORDERED)];
+function list(lines, i) {
+  const first = ORDERED.exec(lines[i]);
+  const marker = first ? ORDERED : BULLET;
+  /** @type {string[]} */
+  const items = [];
+  let next = i;
+  // A loop with an early exit: the list ends at the first line without a marker of its kind.
+  for (; next < lines.length; next++) {
+    const match = marker.exec(lines[next]);
+    if (!match) break;
+    items.push(`<li>${inline(lines[next].slice(match[0].length))}</li>`);
+  }
+  if (!first) return { html: `<ul>${items.join('')}</ul>`, next };
   // A list interrupted by a code block continues as a new <ol>; keeping the
   // source number as `start` stops it from renumbering from 1.
   const start = Number(first[1]);
-  return { html: `<ol${start === 1 ? '' : ` start="${start}"`}>${listItems(items)}</ol>`, next: i + items.length };
+  return { html: `<ol${start === 1 ? '' : ` start="${start}"`}>${items.join('')}</ol>`, next };
 }
-
-/**
- * Lines up to the next blank line or block start, joined into one paragraph.
- * @param {string[]} lines
- * @param {number} i a line no block parser claims
- * @returns {Block}
- */
-function paragraph(lines, i) {
-  let next = i + 1;
-  while (next < lines.length && !startsBlock(lines[next])) next++;
-  return { html: `<p>${inline(lines.slice(i, next).join(' '))}</p>`, next };
-}
-
-/**
- * Matches `pattern` against each line from `from` on, stopping at the first line it does not match.
- * @param {string[]} lines
- * @param {number} from
- * @param {RegExp} pattern
- * @returns {RegExpExecArray[]}
- */
-function matchRun(lines, from, pattern) {
-  /** @type {RegExpExecArray[]} */
-  const matches = [];
-  // A loop with an early exit: the run ends at the first line that does not match.
-  for (let k = from; k < lines.length; k++) {
-    const match = pattern.exec(lines[k]);
-    if (!match) break;
-    matches.push(match);
-  }
-  return matches;
-}
-
-/**
- * List items from their marker matches: the text after the marker, with inline marks.
- * @param {RegExpExecArray[]} items
- * @returns {string}
- */
-const listItems = (items) => items.map((m) => `<li>${inline(m.input.slice(m[0].length))}</li>`).join('');
 
 // Only web links, mail links, in-page anchors and relative paths become anchors.
 // The URL is parsed the way a browser will parse the href (WHATWG URL): leading

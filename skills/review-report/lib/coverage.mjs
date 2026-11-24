@@ -9,8 +9,6 @@
 import { lineStats } from './diff.mjs';
 
 /** @typedef {import('./diff.mjs').DiffFile} DiffFile */
-/** @typedef {import('./diff.mjs').Hunk} Hunk */
-/** @typedef {import('./diff.mjs').DiffLine} DiffLine */
 /** @typedef {import('./story.mjs').Story} Story */
 /** @typedef {import('./story.mjs').Report} Report */
 /** @typedef {import('./story.mjs').ReportChapter} ReportChapter */
@@ -81,92 +79,46 @@ function compileGlob(glob) {
   let re = '';
   for (let i = 0; i < glob.length; i++) {
     const ch = glob[i];
-    if (ch === '*' && glob[i + 1] === '*') {
-      if (glob[i + 2] === '/') { re += '(?:.*/)?'; i += 2; } else { re += '.*'; i += 1; }
-    } else if (ch === '*') re += '[^/]*';
-    else if (ch === '?') re += '[^/]';
-    else re += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    switch (ch) {
+      case '*':
+        if (glob[i + 1] !== '*') re += '[^/]*';
+        else if (glob[i + 2] === '/') { re += '(?:.*/)?'; i += 2; } // `**/` also matches no folder at all
+        else { re += '.*'; i += 1; }
+        break;
+      case '?':
+        re += '[^/]';
+        break;
+      default:
+        re += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    }
   }
   return new RegExp(`^${re}$`);
 }
 
 /**
- * @param {Hunk} hunk
- * @returns {number} the hunk's added and deleted lines
- */
-const changedIn = (hunk) => hunk.lines.filter((l) => l.type !== 'ctx').length;
-
-/**
- * Why a rule leaves a file out of the count. `glob` is set only for a story exclusion, so the gate can tell
- * which story globs did something.
- * @typedef {{ reason: string, glob?: string }} Exclusion
- */
-
-/** @typedef {(file: DiffFile, storyExcludes: StoryExclude[]) => Exclusion | undefined} ExcludeRule */
-
-/** @type {ExcludeRule} */
-const storyRule = (file, storyExcludes) => {
-  const rule = storyExcludes.find((e) => matchGlob(e.glob, file.path));
-  return rule && { reason: rule.reason, glob: rule.glob };
-};
-
-/** @type {ExcludeRule} */
-const binaryRule = (file) => (file.binary ? { reason: 'binary' } : undefined);
-
-/** @type {ExcludeRule} */
-const defaultRule = (file) => (DEFAULT_EXCLUDES.some((g) => matchGlob(g, file.path)) ? { reason: DEFAULT_REASON } : undefined);
-
-/**
- * Tried in order; the first rule that answers decides. The story goes first so its reason wins over the
- * built-in ones, and a story glob counts as used only where it was that first answer.
- */
-const EXCLUDE_RULES = Object.freeze([storyRule, binaryRule, defaultRule]);
-
-/**
- * The answer of the first rule that excludes the file, if any.
+ * Why the count leaves a file out, or undefined when it counts. The story goes first, so its reason wins over
+ * the built-in ones. `glob` is set only for a story exclusion, so the gate can tell which story globs did something.
  * @param {DiffFile} file
  * @param {StoryExclude[]} storyExcludes
- * @returns {Exclusion | undefined}
+ * @returns {{ reason: string, glob?: string } | undefined}
  */
-function firstExclusion(file, storyExcludes) {
-  // A loop, not map + find: later rules must not run once one has answered (the default rule tries every default glob).
-  for (const rule of EXCLUDE_RULES) {
-    const exclusion = rule(file, storyExcludes);
-    if (exclusion) return exclusion;
-  }
+function exclusionOf(file, storyExcludes) {
+  const rule = storyExcludes.find((e) => matchGlob(e.glob, file.path));
+  if (rule) return { reason: rule.reason, glob: rule.glob };
+  if (file.binary) return { reason: 'binary' };
+  if (DEFAULT_EXCLUDES.some((g) => matchGlob(g, file.path))) return { reason: DEFAULT_REASON };
   return undefined;
 }
 
 /**
- * How the count treats one changed file.
- * @typedef {{ kind: 'skipped' }
- *   | { kind: 'excluded', file: ExcludedFile, glob?: string }
- *   | { kind: 'counted', file: CountedFile }} Classification
- */
-
-/**
- * @param {DiffFile} file
- * @param {StoryExclude[]} storyExcludes
- * @param {Set<DiffLine>} shown the line objects some chapter shows
- * @returns {Classification}
- */
-function classify(file, storyExcludes, shown) {
-  const { adds, dels } = lineStats(file);
-  const changed = adds + dels;
-  // Mode-only changes and pure renames have nothing to explain. A binary file has no lines but still changed.
-  if (changed === 0 && !file.binary) return { kind: 'skipped' };
-  const exclusion = firstExclusion(file, storyExcludes);
-  if (exclusion) return { kind: 'excluded', file: { path: file.path, reason: exclusion.reason }, glob: exclusion.glob };
-  const explained = file.hunks.flatMap((h) => h.lines).filter((l) => l.type !== 'ctx' && shown.has(l)).length;
-  return { kind: 'counted', file: { path: file.path, changed, explained, missing: changed - explained, adds, dels } };
-}
-
-/**
- * The hunks a chapter shows; a prose-only chapter shows none.
+ * The changed lines a chapter shows; a prose-only chapter shows none.
  * @param {ReportChapter} chapter
- * @returns {Hunk[]}
+ * @returns {number}
  */
-const shownHunks = (chapter) => (chapter.kind === 'diff' ? chapter.hunks.flatMap((sel) => sel.hunks) : []);
+function changedLinesShown(chapter) {
+  if (chapter.kind !== 'diff') return 0;
+  return chapter.hunks.flatMap((sel) => sel.hunks).flatMap((h) => h.lines).filter((l) => l.type !== 'ctx').length;
+}
 
 /**
  * The story must already have passed `validateStory`; its exclude entries are not checked again here.
@@ -177,27 +129,37 @@ const shownHunks = (chapter) => (chapter.kind === 'diff' ? chapter.hunks.flatMap
  */
 export function computeCoverage(story, files, report) {
   const storyExcludes = story.exclude ?? [];
-  // Line objects, not hunks: a sliced selection shows only part of a hunk.
-  const shown = new Set(report.chapters.flatMap(shownHunks).flatMap((h) => h.lines));
-  const classified = files.map((file) => classify(file, storyExcludes, shown));
-
-  const counted = classified.flatMap((c) => (c.kind === 'counted' ? [c.file] : []));
-  const excluded = classified.flatMap((c) => (c.kind === 'excluded' ? [c.file] : []));
-  const usedGlobs = new Set(classified.flatMap((c) => (c.kind === 'excluded' && c.glob ? [c.glob] : [])));
+  /** @type {CountedFile[]} */
+  const counted = [];
+  /** @type {ExcludedFile[]} */
+  const excluded = [];
+  /** @type {Set<string>} story globs that excluded at least one file */
+  const usedGlobs = new Set();
+  for (const file of files) {
+    const { adds, dels } = lineStats(file);
+    const changed = adds + dels;
+    // Mode-only changes and pure renames have nothing to explain. A binary file has no lines but still changed.
+    if (changed === 0 && !file.binary) continue;
+    const exclusion = exclusionOf(file, storyExcludes);
+    if (exclusion) {
+      excluded.push({ path: file.path, reason: exclusion.reason });
+      if (exclusion.glob) usedGlobs.add(exclusion.glob);
+      continue;
+    }
+    // Line objects, not hunks: a sliced selection shows only part of a hunk.
+    const explained = file.hunks.flatMap((h) => h.lines).filter((l) => l.type !== 'ctx' && report.shownLines.has(l)).length;
+    counted.push({ path: file.path, changed, explained, missing: changed - explained, adds, dels });
+  }
 
   const total = counted.reduce((n, f) => n + f.changed, 0);
   const explained = counted.reduce((n, f) => n + f.explained, 0);
-
-  // Changed lines per chapter, so the CLI can refuse a chapter too long to read as one page.
-  const chapterSizes = report.chapters.map((ch, i) => ({
-    index: i, title: ch.title, changed: shownHunks(ch).reduce((n, h) => n + changedIn(h), 0),
-  }));
-
   return {
     total, explained, ratio: total === 0 ? 1 : explained / total,
     counted,
     uncovered: counted.filter((f) => f.missing > 0).sort((a, b) => b.missing - a.missing),
-    excluded, chapterSizes,
+    excluded,
+    // Changed lines per chapter, so the CLI can refuse a chapter too long to read as one page.
+    chapterSizes: report.chapters.map((ch, i) => ({ index: i, title: ch.title, changed: changedLinesShown(ch) })),
     unmatched: storyExcludes.map((e) => e.glob).filter((g) => !usedGlobs.has(g)),
   };
 }

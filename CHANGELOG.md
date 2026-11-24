@@ -20,14 +20,15 @@
 **Changes**
 - The code follows modern JavaScript throughout, with JSDoc types; ESLint and a TypeScript type check run in CI.
 - `render.mjs` now rejects `--pages` and `--single` together; before, the later one won silently. Options also
-  accept the `--name=value` form.
-- Lint also limits function size, nesting and parameters, requires JSDoc on exported functions and a reason on
-  every disable comment, and fails on warnings.
+  accept the `--name=value` form. Messages for an unknown option or a missing value now use Node's wording,
+  and a bare `--` is accepted.
+- Lint also requires JSDoc on exported functions and a reason on every disable comment. It warns about
+  oversized functions without failing.
 - `npm run check:licenses` runs in CI. Every package in the lockfile, dev tools included, must be under an allowed
   permissive licence. `THIRD_PARTY_NOTICES.md` credits the packages whose licences ask for it.
-- `render.mjs` is now a pipeline of named steps, and the diff, coverage, Markdown, story and HTML modules are
-  split into smaller functions. The page script is grouped by feature and uses one delegated listener per
-  event type. Output is unchanged except for the fixes above.
+- The renderer and the page script are reorganised. `render.mjs` reads as one short sequence of steps, the
+  gate checks have their own module, and the page script keeps its state in one object with one delegated
+  listener per event type. Output is unchanged except for the fixes above.
 - Development needs Node 22.22.2 or newer, or 24.15.0 or newer. The skill's own requirement is unchanged.
 
 **Tests**
