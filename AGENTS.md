@@ -26,8 +26,12 @@ using it; usage is in [README.md](README.md).
 ## Commands
 
 ```bash
-npm test                 # unit and CLI tests, Node 22 or newer, no install needed
-npm ci && npx playwright install chromium firefox webkit
+npm test                 # unit, CLI and snapshot tests, no install needed
+npm ci && npx playwright install chromium firefox webkit   # for everything below
+npm test -- --test-update-snapshots   # rewrite the snapshots; read the snapshot diff before committing
+npm run lint             # ESLint: modern JavaScript rules, JSDoc; oversized functions only warn
+npm run typecheck        # tsc over tsconfig.json (no emit): JSDoc types
+npm run check:licenses   # every package in package-lock.json must have an allowed permissive licence
 npm run e2e              # browser tests; run them for any change to template/ or lib/html.mjs
 npm run example          # re-render reference/example-report.html from the fixture
 npm run screenshots      # re-render docs/screenshots/ from the fixture
@@ -35,10 +39,35 @@ npm run update-cdn       # move the pinned CDN files to their newest releases
 ```
 
 CI runs `npm test` on Linux, macOS and Windows. It also fails when the committed example report is stale.
+A `lint` job runs `npm run lint`, `npm run typecheck` and `npm run check:licenses`.
+
+Development needs Node 22.22.2 or newer, or 24.15.0 or newer. The lint plugin that checks JSDoc requires it,
+and the snapshot tests need Node 22.14 or newer. The skill itself runs on the Node version README.md states.
 
 ## Rules
 
+- **Modern JavaScript, checked.** ES2022: `const`/`let`, arrow callbacks, template literals, `?.`/`??`,
+  ES modules with `node:` imports (the page script in `template/` is one classic browser script).
+  Built-ins up to ES2024, such as `Map.groupBy`, are fine: Node 22 and current browsers have them.
+  Every file starts with `// @ts-check` (after any shebang) and documents types in JSDoc.
+  There is no build step and no `.ts` file. `npm run lint` and `npm run typecheck` must pass.
+- **Small functions.** Lint warns above complexity 20, 4 levels of nesting, 4 parameters, callbacks nested
+  4 deep and 50 lines per function. A warning does not fail lint. Split the function when that reads better.
+  Lint rejects `forEach` and reassigned parameters. Exported functions need a JSDoc comment.
+- **Disables carry a reason.** Write `// eslint-disable-next-line rule -- why` so the next reader knows why
+  the rule does not apply. A disable without a reason fails lint.
+- **Snapshots pin output.** Snapshot tests fix the renderer's output: paged pages, the numbered dump and the
+  command-line messages. Rewrite them only for an intended output change, and read the diff first.
+- **Permissive licences only.** Every dependency, dev tools included, must be under an allowed permissive
+  licence. `npm run check:licenses` reads each installed package's `package.json` and licence files.
+  A licence that asks for credit needs an entry in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md);
+  the check fails on a missing or stale one.
+- **New JavaScript files.** A file outside the folders already checked must be added to both the `lint` script in
+  `package.json` and the `include` list in `tsconfig.json`; otherwise a check may miss it.
 - **No runtime dependencies.** The renderer runs with a bare `node`. Playwright is for the browser check only.
+- **A portable core.** The modules in `lib/`, except `git.mjs`, use no Node-only API: no `node:` import,
+  no `Buffer`, no `process`. They turn a diff and a story into a report and can run wherever JavaScript runs.
+  Lint enforces it. The one exception is the SHA-1 import in `html.mjs`, marked with its reason.
 - **Tests first.** A change to `lib/` or `render.mjs` comes with a test that failed before the change.
 - **Portable code.** Spawn processes with `execFileSync` or `spawnSync` and an argument array, never a shell.
   Build paths with `node:path`. Line endings are LF everywhere (`.gitattributes`).

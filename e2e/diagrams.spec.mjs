@@ -1,5 +1,9 @@
+// @ts-check
 // Several Mermaid diagrams on one page, rendered from the pinned CDN file.
-import { test, expect, reportUrl } from './reports.mjs';
+import { test, expect, reportUrl, DIAGRAM_TIMEOUT } from './reports.mjs';
+
+/** @typedef {import('@playwright/test').Page} Page */
+/** @typedef {import('@playwright/test').Locator} Locator */
 
 test.use({ cdn: true });
 
@@ -13,11 +17,12 @@ const DIAGRAMS = [
   ['wide flowchart', 'Stage ten of the pipeline'],
 ];
 
+/** @param {Page} page */
 async function expectEachDiagramInItsOwnBox(page) {
   const boxes = page.locator('pre.mermaid');
   await expect(boxes).toHaveCount(DIAGRAMS.length);
   for (const [i, [kind, label]] of DIAGRAMS.entries()) {
-    await expect(boxes.nth(i).locator('svg'), `${kind}: one drawing`).toHaveCount(1, { timeout: 15_000 });
+    await expect(boxes.nth(i).locator('svg'), `${kind}: one drawing`).toHaveCount(1, { timeout: DIAGRAM_TIMEOUT });
     await expect(boxes.nth(i).locator('svg'), `${kind}: its own content`).toContainText(label);
   }
 }
@@ -46,23 +51,32 @@ test('text on new and changed boxes stays dark in the dark theme', async ({ page
 
   const label = page.locator('pre.mermaid g.node.new .nodeLabel').first();
 
-  await expect(label).toHaveCSS('color', 'rgb(31, 35, 40)', { timeout: 15_000 });
+  await expect(label).toHaveCSS('color', 'rgb(31, 35, 40)', { timeout: DIAGRAM_TIMEOUT });
 });
 
-// Drawn and natural width of a diagram box, and whether the box scrolls sideways.
+/**
+ * Drawn and natural width of a diagram box, and whether the box scrolls sideways.
+ * @param {Locator} box
+ * @returns {Promise<{ drawn: number, natural: number, scrolls: boolean }>}
+ */
 function sizeOf(box) {
   return box.evaluate((pre) => {
-    const svg = pre.querySelector('svg');
+    // Cannot be null: every caller waits for the diagram's svg to be visible first.
+    const svg = /** @type {SVGSVGElement} */ (pre.querySelector('svg'));
     return { drawn: svg.getBoundingClientRect().width, natural: svg.viewBox.baseVal.width, scrolls: pre.scrollWidth > pre.clientWidth };
   });
 }
 
 test.describe('a diagram wider than its column', () => {
+  /**
+   * @param {Page} page
+   * @returns {Locator}
+   */
   const wide = (page) => page.locator('figure.diagram').filter({ hasText: 'Stage ten of the pipeline' });
 
   test.beforeEach(async ({ page }) => {
     await page.goto(reportUrl('diagrams.html'));
-    await expect(wide(page).locator('svg')).toBeVisible({ timeout: 15_000 });
+    await expect(wide(page).locator('svg')).toBeVisible({ timeout: DIAGRAM_TIMEOUT });
   });
 
   test('fits the column by default and offers Full size; narrow diagrams get no button', async ({ page }) => {
@@ -89,11 +103,11 @@ test.describe('a diagram wider than its column', () => {
 
   test('stays at full size after a theme switch redraws it', async ({ page }) => {
     await wide(page).getByRole('button', { name: 'Full size' }).click();
-    await wide(page).locator('svg').evaluate((svg) => { svg.dataset.before = 'theme'; });
+    await wide(page).locator('svg').evaluate((svg) => svg.setAttribute('data-before', 'theme'));
 
     await page.getByRole('button', { name: 'Theme' }).click();
 
-    await expect(wide(page).locator('svg:not([data-before])')).toBeVisible({ timeout: 15_000 }); // the redrawn diagram
+    await expect(wide(page).locator('svg:not([data-before])')).toBeVisible({ timeout: DIAGRAM_TIMEOUT }); // the redrawn diagram
     const size = await sizeOf(wide(page).locator('pre.mermaid'));
     expect(Math.abs(size.drawn - size.natural)).toBeLessThanOrEqual(1);
     await expect(wide(page).getByRole('button', { name: 'Fit to width' })).toBeVisible();
