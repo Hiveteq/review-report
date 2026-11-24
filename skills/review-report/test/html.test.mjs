@@ -309,5 +309,5 @@ test('a paged report of 5,000 files renders in seconds, not minutes', () => {
   const coverage = computeCoverage(bigStory, bigFiles, bigReport);
   renderPages({ story: bigStory, report: bigReport, files: bigFiles, coverage, assets: { css: '', js: '' }, paged: true });
 
-  assert.ok(performance.now() - started < 5_000, 'quadratic coverage recomputation is back');
+  assert.ok(performance.now() - started < 5_000, 'paged render took over 5 s; is coverage recomputed for every file again?');
 });

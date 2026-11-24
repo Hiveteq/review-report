@@ -1,8 +1,9 @@
 // @ts-check
 // Lint rules for the JavaScript files that the lint script in package.json lists.
-// Two groups: the modern-syntax baseline (no var, const by default, arrow callbacks, template literals) and
-// structure limits that keep functions small and flat. A rule that would force worse code is turned off on that
-// line with `-- reason`. File-level exceptions sit at the end of this list, each with its reason.
+// Sections: modern syntax, structure warnings for outsized functions, control flow, correctness,
+// nothing useless, no forEach, JSDoc, and a reason on every disable. A rule that would force worse code is
+// turned off on that line with `-- reason`. File-level exceptions sit at the end of this list, each with its
+// reason.
 import js from '@eslint/js';
 import globals from 'globals';
 import { defineConfig } from 'eslint/config';

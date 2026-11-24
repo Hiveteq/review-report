@@ -48,6 +48,7 @@ and the snapshot tests need Node 22.14 or newer. The skill itself runs on the No
 
 - **Modern JavaScript, checked.** ES2022: `const`/`let`, arrow callbacks, template literals, `?.`/`??`,
   ES modules with `node:` imports (the page script in `template/` is one classic browser script).
+  Built-ins up to ES2024, such as `Map.groupBy`, are fine: Node 22 and current browsers have them.
   Every file starts with `// @ts-check` (after any shebang) and documents types in JSDoc.
   There is no build step and no `.ts` file. `npm run lint` and `npm run typecheck` must pass.
 - **Small functions.** Lint warns above complexity 20, 4 levels of nesting, 4 parameters, callbacks nested
@@ -58,8 +59,9 @@ and the snapshot tests need Node 22.14 or newer. The skill itself runs on the No
 - **Snapshots pin output.** Snapshot tests fix the renderer's output: paged pages, the numbered dump and the
   command-line messages. Rewrite them only for an intended output change, and read the diff first.
 - **Permissive licences only.** Every dependency, dev tools included, must be under an allowed permissive
-  licence. `npm run check:licenses` reads `package.json` and the licence files. A licence that asks for credit
-  needs an entry in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md); the check fails on a missing or stale one.
+  licence. `npm run check:licenses` reads each installed package's `package.json` and licence files.
+  A licence that asks for credit needs an entry in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md);
+  the check fails on a missing or stale one.
 - **New JavaScript files.** A file outside the folders already checked must be added to both the `lint` script in
   `package.json` and the `include` list in `tsconfig.json`; otherwise a check may miss it.
 - **No runtime dependencies.** The renderer runs with a bare `node`. Playwright is for the browser check only.

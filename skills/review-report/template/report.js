@@ -424,29 +424,11 @@
     return splitTableOf.get(note.table) ?? note.table;
   }
   /**
-   * Groups items by key. Keys keep the order they first appear in, and each group keeps the items' order.
-   * Map.groupBy does the same, but is not yet in every browser a reader may open the report in.
-   * @template T, K
-   * @param {Iterable<T>} items
-   * @param {(item: T) => K} keyOf
-   * @returns {Map<K, T[]>}
-   */
-  function groupBy(items, keyOf) {
-    /** @type {Map<K, T[]>} */
-    const groups = new Map();
-    for (const item of items) {
-      const key = keyOf(item);
-      const group = groups.get(key);
-      if (group) group.push(item); else groups.set(key, [item]);
-    }
-    return groups;
-  }
-  /**
    * @param {Block[]} blocks
    * @returns {Map<HTMLTableRowElement, Note[]>} each line that carries notes, as now shown, with its notes in story order
    */
   function indexNotesByRow(blocks) {
-    return new Map(blocks.flatMap((block) => [...groupBy(block.notes, (note) => visibleRow(note, block))]));
+    return new Map(blocks.flatMap((block) => [...Map.groupBy(block.notes, (note) => visibleRow(note, block))]));
   }
   /**
    * @param {number} n
@@ -490,7 +472,7 @@
    * @param {Block} block
    */
   function layoutInline(block) {
-    for (const [row, notes] of groupBy(block.notes, (note) => visibleRow(note, block))) {
+    for (const [row, notes] of Map.groupBy(block.notes, (note) => visibleRow(note, block))) {
       row.after(...notes.map((note) => commentRow(note, block.split ? 4 : 3)));
     }
   }
@@ -516,7 +498,7 @@
    * @param {Block} block
    */
   function placeMarkers(block) {
-    for (const [row, notes] of groupBy(block.notes, (note) => visibleRow(note, block))) {
+    for (const [row, notes] of Map.groupBy(block.notes, (note) => visibleRow(note, block))) {
       for (const note of notes) {
         const cell = anchorCell(row, note);
         cell.classList.add('note-anchor');
@@ -534,7 +516,7 @@
    */
   function layoutBelow(block) {
     placeMarkers(block);
-    for (const [table, notes] of groupBy(block.notes, (note) => visibleTable(note, block))) {
+    for (const [table, notes] of Map.groupBy(block.notes, (note) => visibleTable(note, block))) {
       const box = document.createElement('div');
       box.className = 'notes-below';
       for (const note of notes) {

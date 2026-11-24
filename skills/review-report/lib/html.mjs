@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { CDN, pin } from './cdn.mjs';
 import { escapeHtml as esc, renderMarkdown as md } from './markdown.mjs';
 import { HEADER_ONLY, headerOnlyKind, hunkLabel, lineStats, modeNote } from './diff.mjs';
-import { firstBy, groupBy } from './collections.mjs';
+import { firstBy } from './collections.mjs';
 
 /** @typedef {import('./diff.mjs').DiffFile} DiffFile */
 /** @typedef {import('./diff.mjs').Hunk} Hunk */
@@ -160,7 +160,7 @@ function buildContext({ story, report, files, coverage, assets, paged }) {
     fileHashes: new Map(files.map((f, i) => [f, hashes[i]])),
     anchorOf,
     firstLocationOf,
-    filesByPage: groupBy(files, pageOf),
+    filesByPage: Map.groupBy(files, pageOf),
     // In the single layout every block is on the one page, so a link is just the fragment.
     fileIndexAll: files.map((f) => fileIndexItem(f, `${paged ? pageOf(f) ?? '' : ''}#${anchorOf.get(f)}`)).join(''),
     chapterFiles: report.chapters.map(chapterFileList),
@@ -596,7 +596,7 @@ function fileTables(file, hunks, comments) {
  * @returns {CommentIndex}
  */
 function commentsByLine(comments) {
-  return groupBy(comments.map((comment, order) => ({ comment, order })), ({ comment }) => `${comment.side}:${comment.line}`);
+  return Map.groupBy(comments.map((comment, order) => ({ comment, order })), ({ comment }) => `${comment.side}:${comment.line}`);
 }
 
 /**
